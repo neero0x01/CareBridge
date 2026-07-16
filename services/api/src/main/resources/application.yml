@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: carebridge-api
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/carebridge}
+    username: ${DATABASE_USERNAME:carebridge}
+    password: ${DATABASE_PASSWORD:carebridge}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when_authorized
+  health:
+    db:
+      enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.carebridge: INFO
