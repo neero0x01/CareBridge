@@ -1,0 +1,4 @@
+# Production profile: no open tenant registration.
+carebridge:
+  auth:
+    register-tenant-enabled: false

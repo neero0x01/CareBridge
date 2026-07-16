@@ -25,6 +25,9 @@ services:
       DATABASE_USERNAME: ${POSTGRES_USER:-carebridge}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-carebridge}
       SERVER_PORT: 8080
+      JWT_SECRET: ${JWT_SECRET:-carebridge-local-dev-secret-change-me-32b}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      REGISTER_TENANT_ENABLED: ${REGISTER_TENANT_ENABLED:-true}
     depends_on:
       db:
         condition: service_healthy

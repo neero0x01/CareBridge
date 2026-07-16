@@ -12,9 +12,22 @@ export default function Home() {
           Multi-tenant case review for synthetic demo data only. Not a medical
           device, not real PHI, not production clinical software.
         </p>
-        <p className="mt-8 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
-          Platform shell is up. Auth, cases, and the board arrive in later
-          milestones.
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <a
+            href="/login"
+            className="rounded-md bg-teal-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-800"
+          >
+            Sign in
+          </a>
+          <a
+            href="/register"
+            className="rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Register tenant
+          </a>
+        </div>
+        <p className="mt-6 text-sm text-slate-500">
+          Cases and board UI arrive in later milestones.
         </p>
       </div>
     </main>

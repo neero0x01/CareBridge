@@ -24,6 +24,8 @@ docker compose up --build
 | Service | URL / port |
 | ------- | ---------- |
 | Web shell | http://localhost:3000 |
+| Login | http://localhost:3000/login |
+| Register tenant (demo/local) | http://localhost:3000/register |
 | API health | http://localhost:8080/actuator/health |
 | Postgres | localhost:5432 (`carebridge` / `carebridge` / `carebridge`) |
 
@@ -65,8 +67,16 @@ npm run dev   # http://localhost:3000
 (cd apps/web && npm ci && npm run build)
 ```
 
+## Auth (M1)
+
+- `POST /api/v1/auth/register-tenant` — create Tenant + first ORG_ADMIN (disabled when `REGISTER_TENANT_ENABLED=false` or `prod` profile)
+- `POST /api/v1/auth/login` — `tenantSlug` + email + password → JWT access token (~15m)
+- `GET /api/v1/me` — current User + Tenant (Bearer token)
+
+JWT claims: `sub`, `tenant_id`, `role`, `email`. Passwords: BCrypt (cost 10).
+
 ## Status
 
-**M0 platform skeleton** — empty runnable path (health, Flyway baseline, web shell, Compose). Product features land in later milestones (auth, cases, audit, webhooks).
+**M1 auth** — register tenant, login, `/me`, portal login/register pages. Cases, invite, refresh rotation, audit, and webhooks land in later tickets.
 
 See `CONTEXT.md` for domain language and Linear project **CareBridge** for tickets.

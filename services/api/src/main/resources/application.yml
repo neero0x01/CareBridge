@@ -32,6 +32,18 @@ management:
     db:
       enabled: true
 
+carebridge:
+  jwt:
+    # HS256 requires ≥ 256 bits. Override via JWT_SECRET in real deploys.
+    secret: ${JWT_SECRET:carebridge-local-dev-secret-change-me-32b}
+    issuer: ${JWT_ISSUER:carebridge-local}
+    access-token-ttl: ${JWT_ACCESS_TTL:15m}
+  auth:
+    # Open tenant registration for local/demo; set false (or use prod profile) to disable.
+    register-tenant-enabled: ${REGISTER_TENANT_ENABLED:true}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
 logging:
   level:
     root: INFO
