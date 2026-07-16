@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
@@ -33,6 +34,12 @@ public class GlobalExceptionHandler {
             : "Validation failed";
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
         .body(ApiError.of(ErrorCode.VALIDATION_ERROR, message, traceId()));
+  }
+
+  @ExceptionHandler(AccessDeniedException.class)
+  public ResponseEntity<ApiError> handleAccessDenied(AccessDeniedException ex) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(ApiError.of(ErrorCode.FORBIDDEN, "Forbidden", traceId()));
   }
 
   @ExceptionHandler({BadCredentialsException.class, AuthenticationException.class})

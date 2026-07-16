@@ -3,6 +3,7 @@ package com.carebridge.config;
 import com.carebridge.common.error.ApiError;
 import com.carebridge.common.error.ErrorCode;
 import com.carebridge.security.JwtAuthenticationFilter;
+import com.carebridge.security.MustChangePasswordFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Arrays;
@@ -13,6 +14,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -27,18 +29,22 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 @EnableConfigurationProperties(CarebridgeProperties.class)
 public class SecurityConfig {
 
   private final JwtAuthenticationFilter jwtAuthenticationFilter;
+  private final MustChangePasswordFilter mustChangePasswordFilter;
   private final CarebridgeProperties properties;
   private final ObjectMapper objectMapper;
 
   public SecurityConfig(
       JwtAuthenticationFilter jwtAuthenticationFilter,
+      MustChangePasswordFilter mustChangePasswordFilter,
       CarebridgeProperties properties,
       ObjectMapper objectMapper) {
     this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    this.mustChangePasswordFilter = mustChangePasswordFilter;
     this.properties = properties;
     this.objectMapper = objectMapper;
   }
@@ -76,7 +82,8 @@ public class SecurityConfig {
                                 HttpServletResponse.SC_FORBIDDEN,
                                 ErrorCode.FORBIDDEN,
                                 "Forbidden")))
-        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+        .addFilterAfter(mustChangePasswordFilter, JwtAuthenticationFilter.class);
 
     return http.build();
   }

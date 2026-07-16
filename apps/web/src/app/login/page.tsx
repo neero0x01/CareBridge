@@ -21,8 +21,11 @@ export default function LoginPage() {
       const tokens = await login({ tenantSlug, email, password });
       storeAccessToken(tokens.accessToken);
       const profile = await me(tokens.accessToken);
+      const mustChange = profile.user.mustChangePassword
+        ? " · must change password before other APIs"
+        : "";
       setStatus(
-        `Signed in as ${profile.user.fullName} (${profile.user.role}) · ${profile.tenant.name}`,
+        `Signed in as ${profile.user.fullName} (${profile.user.role}) · ${profile.tenant.name}${mustChange}`,
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");

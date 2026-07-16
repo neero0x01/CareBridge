@@ -1,11 +1,15 @@
 package com.carebridge.identity;
 
+import com.carebridge.identity.dto.ChangePasswordRequest;
 import com.carebridge.identity.dto.LoginRequest;
 import com.carebridge.identity.dto.RegisterTenantRequest;
 import com.carebridge.identity.dto.RegisterTenantResponse;
 import com.carebridge.identity.dto.TokenResponse;
+import com.carebridge.identity.dto.UserResponse;
+import com.carebridge.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,5 +35,12 @@ public class AuthController {
   @PostMapping("/login")
   public TokenResponse login(@Valid @RequestBody LoginRequest request) {
     return authService.login(request);
+  }
+
+  @PostMapping("/change-password")
+  public UserResponse changePassword(
+      @AuthenticationPrincipal AuthenticatedUser principal,
+      @Valid @RequestBody ChangePasswordRequest request) {
+    return authService.changePassword(principal, request);
   }
 }

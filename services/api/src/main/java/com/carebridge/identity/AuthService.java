@@ -3,6 +3,7 @@ package com.carebridge.identity;
 import com.carebridge.common.error.ApiException;
 import com.carebridge.common.error.ErrorCode;
 import com.carebridge.config.CarebridgeProperties;
+import com.carebridge.identity.dto.ChangePasswordRequest;
 import com.carebridge.identity.dto.LoginRequest;
 import com.carebridge.identity.dto.MeResponse;
 import com.carebridge.identity.dto.RegisterTenantRequest;
@@ -129,6 +130,27 @@ public class AuthService {
     return new MeResponse(UserResponse.from(user), TenantResponse.from(tenant));
   }
 
+  @Transactional
+  public UserResponse changePassword(
+      AuthenticatedUser principal, ChangePasswordRequest request) {
+    User user =
+        userRepository
+            .findById(principal.userId())
+            .orElseThrow(
+                () ->
+                    new ApiException(
+                        ErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED, "Unauthorized"));
+
+    if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+      throw new ApiException(
+          ErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED, "Invalid credentials");
+    }
+
+    user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+    user.setMustChangePassword(false);
+    return UserResponse.from(user);
+  }
+
   private TokenResponse issueTokens(User user) {
     String accessToken = jwtService.createAccessToken(user);
     long expiresIn = jwtService.accessTokenExpiresInSeconds();
@@ -136,7 +158,7 @@ public class AuthService {
     return new TokenResponse(accessToken, null, expiresIn);
   }
 
-  private static String normalizeEmail(String email) {
+  static String normalizeEmail(String email) {
     return email.trim().toLowerCase(Locale.ROOT);
   }
 }

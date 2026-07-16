@@ -47,7 +47,10 @@ export type ApiErrorBody = {
 async function parseError(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as ApiErrorBody;
-    return body.message ?? res.statusText;
+    if (body.code && body.message) {
+      return `${body.code}: ${body.message}`;
+    }
+    return body.message ?? body.code ?? res.statusText;
   } catch {
     return res.statusText || "Request failed";
   }
@@ -95,6 +98,76 @@ export async function me(accessToken: string): Promise<MeResponse> {
     throw new Error(await parseError(res));
   }
   return res.json() as Promise<MeResponse>;
+}
+
+export async function listUsers(accessToken: string): Promise<UserResponse[]> {
+  const res = await fetch(`${API_URL}/api/v1/users`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<UserResponse[]>;
+}
+
+export async function inviteUser(
+  accessToken: string,
+  input: {
+    email: string;
+    fullName: string;
+    role: string;
+    temporaryPassword: string;
+  },
+): Promise<UserResponse> {
+  const res = await fetch(`${API_URL}/api/v1/users`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<UserResponse>;
+}
+
+export async function patchUser(
+  accessToken: string,
+  userId: string,
+  input: { role?: string; active?: boolean },
+): Promise<UserResponse> {
+  const res = await fetch(`${API_URL}/api/v1/users/${userId}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<UserResponse>;
+}
+
+export async function changePassword(
+  accessToken: string,
+  input: { currentPassword: string; newPassword: string },
+): Promise<UserResponse> {
+  const res = await fetch(`${API_URL}/api/v1/auth/change-password`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<UserResponse>;
 }
 
 const TOKEN_KEY = "carebridge_access_token";
