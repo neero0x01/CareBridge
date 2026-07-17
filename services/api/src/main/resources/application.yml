@@ -38,6 +38,7 @@ carebridge:
     secret: ${JWT_SECRET:carebridge-local-dev-secret-change-me-32b}
     issuer: ${JWT_ISSUER:carebridge-local}
     access-token-ttl: ${JWT_ACCESS_TTL:15m}
+    refresh-token-ttl: ${JWT_REFRESH_TTL:7d}
   auth:
     # Open tenant registration for local/demo; set false (or use prod profile) to disable.
     register-tenant-enabled: ${REGISTER_TENANT_ENABLED:true}

@@ -26,6 +26,7 @@ public class CarebridgeProperties {
     private String secret = "carebridge-local-dev-secret-change-me-32b";
     private String issuer = "carebridge-local";
     private Duration accessTokenTtl = Duration.ofMinutes(15);
+    private Duration refreshTokenTtl = Duration.ofDays(7);
 
     public String getSecret() {
       return secret;
@@ -49,6 +50,14 @@ public class CarebridgeProperties {
 
     public void setAccessTokenTtl(Duration accessTokenTtl) {
       this.accessTokenTtl = accessTokenTtl;
+    }
+
+    public Duration getRefreshTokenTtl() {
+      return refreshTokenTtl;
+    }
+
+    public void setRefreshTokenTtl(Duration refreshTokenTtl) {
+      this.refreshTokenTtl = refreshTokenTtl;
     }
   }
 

@@ -2,6 +2,7 @@ package com.carebridge.identity;
 
 import com.carebridge.identity.dto.ChangePasswordRequest;
 import com.carebridge.identity.dto.LoginRequest;
+import com.carebridge.identity.dto.RefreshRequest;
 import com.carebridge.identity.dto.RegisterTenantRequest;
 import com.carebridge.identity.dto.RegisterTenantResponse;
 import com.carebridge.identity.dto.TokenResponse;
@@ -35,6 +36,11 @@ public class AuthController {
   @PostMapping("/login")
   public TokenResponse login(@Valid @RequestBody LoginRequest request) {
     return authService.login(request);
+  }
+
+  @PostMapping("/refresh")
+  public TokenResponse refresh(@Valid @RequestBody RefreshRequest request) {
+    return authService.refresh(request);
   }
 
   @PostMapping("/change-password")

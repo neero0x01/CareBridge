@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import { me, registerTenant, storeAccessToken } from "@/lib/api";
+import { me, registerTenant, storeTokens } from "@/lib/api";
 
 export default function RegisterPage() {
   const [tenantName, setTenantName] = useState("");
@@ -27,7 +27,7 @@ export default function RegisterPage() {
         adminPassword,
         adminFullName,
       });
-      storeAccessToken(result.tokens.accessToken);
+      storeTokens(result.tokens);
       const profile = await me(result.tokens.accessToken);
       setStatus(
         `Registered ${profile.tenant.name} · signed in as ${profile.user.fullName} (${profile.user.role})`,

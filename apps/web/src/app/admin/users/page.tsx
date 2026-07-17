@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
-  clearAccessToken,
-  getAccessToken,
+  clearSession,
+  ensureAccessToken,
   inviteUser,
   listUsers,
   me,
@@ -29,7 +29,7 @@ export default function AdminUsersPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const load = useCallback(async () => {
-    const token = getAccessToken();
+    const token = await ensureAccessToken();
     if (!token) {
       setNeedsLogin(true);
       setLoading(false);
@@ -37,19 +37,19 @@ export default function AdminUsersPage() {
     }
     setError(null);
     try {
-      const profile = await me(token);
+      const profile = await me();
       if (profile.user.role !== "ORG_ADMIN") {
         setForbidden(true);
         setLoading(false);
         return;
       }
       setTenantName(profile.tenant.name);
-      const list = await listUsers(token);
+      const list = await listUsers();
       setUsers(list);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to load users";
       if (message.toLowerCase().includes("unauthorized")) {
-        clearAccessToken();
+        clearSession();
         setNeedsLogin(true);
       } else if (
         message.toLowerCase().includes("forbidden") ||
@@ -70,8 +70,7 @@ export default function AdminUsersPage() {
 
   async function onInvite(e: FormEvent) {
     e.preventDefault();
-    const token = getAccessToken();
-    if (!token) {
+    if (!(await ensureAccessToken())) {
       setNeedsLogin(true);
       return;
     }
@@ -79,7 +78,7 @@ export default function AdminUsersPage() {
     setStatus(null);
     setSubmitting(true);
     try {
-      const created = await inviteUser(token, {
+      const created = await inviteUser({
         email,
         fullName,
         role,
@@ -92,7 +91,7 @@ export default function AdminUsersPage() {
       setFullName("");
       setRole("CLINICIAN");
       setTemporaryPassword("");
-      const list = await listUsers(token);
+      const list = await listUsers();
       setUsers(list);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invite failed");

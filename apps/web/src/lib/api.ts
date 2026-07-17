@@ -90,20 +90,24 @@ export async function registerTenant(input: {
   return res.json() as Promise<RegisterTenantResponse>;
 }
 
-export async function me(accessToken: string): Promise<MeResponse> {
-  const res = await fetch(`${API_URL}/api/v1/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+export async function me(accessToken?: string): Promise<MeResponse> {
+  const res = accessToken
+    ? await fetch(`${API_URL}/api/v1/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+    : await apiFetch("/api/v1/me");
   if (!res.ok) {
     throw new Error(await parseError(res));
   }
   return res.json() as Promise<MeResponse>;
 }
 
-export async function listUsers(accessToken: string): Promise<UserResponse[]> {
-  const res = await fetch(`${API_URL}/api/v1/users`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+export async function listUsers(accessToken?: string): Promise<UserResponse[]> {
+  const res = accessToken
+    ? await fetch(`${API_URL}/api/v1/users`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+    : await apiFetch("/api/v1/users");
   if (!res.ok) {
     throw new Error(await parseError(res));
   }
@@ -111,22 +115,29 @@ export async function listUsers(accessToken: string): Promise<UserResponse[]> {
 }
 
 export async function inviteUser(
-  accessToken: string,
   input: {
     email: string;
     fullName: string;
     role: string;
     temporaryPassword: string;
   },
+  accessToken?: string,
 ): Promise<UserResponse> {
-  const res = await fetch(`${API_URL}/api/v1/users`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(input),
-  });
+  const body = JSON.stringify(input);
+  const res = accessToken
+    ? await fetch(`${API_URL}/api/v1/users`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body,
+      })
+    : await apiFetch("/api/v1/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
   if (!res.ok) {
     throw new Error(await parseError(res));
   }
@@ -134,18 +145,25 @@ export async function inviteUser(
 }
 
 export async function patchUser(
-  accessToken: string,
   userId: string,
   input: { role?: string; active?: boolean },
+  accessToken?: string,
 ): Promise<UserResponse> {
-  const res = await fetch(`${API_URL}/api/v1/users/${userId}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(input),
-  });
+  const body = JSON.stringify(input);
+  const res = accessToken
+    ? await fetch(`${API_URL}/api/v1/users/${userId}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body,
+      })
+    : await apiFetch(`/api/v1/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
   if (!res.ok) {
     throw new Error(await parseError(res));
   }
@@ -153,38 +171,151 @@ export async function patchUser(
 }
 
 export async function changePassword(
-  accessToken: string,
   input: { currentPassword: string; newPassword: string },
+  accessToken?: string,
 ): Promise<UserResponse> {
-  const res = await fetch(`${API_URL}/api/v1/auth/change-password`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(input),
-  });
+  const body = JSON.stringify(input);
+  const res = accessToken
+    ? await fetch(`${API_URL}/api/v1/auth/change-password`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body,
+      })
+    : await apiFetch("/api/v1/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
   if (!res.ok) {
     throw new Error(await parseError(res));
   }
   return res.json() as Promise<UserResponse>;
 }
 
-const TOKEN_KEY = "carebridge_access_token";
+const ACCESS_TOKEN_KEY = "carebridge_access_token";
+const REFRESH_TOKEN_KEY = "carebridge_refresh_token";
 
-export function storeAccessToken(token: string): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(TOKEN_KEY, token);
+export function storeTokens(tokens: {
+  accessToken: string;
+  refreshToken: string | null;
+}): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
+  if (tokens.refreshToken) {
+    localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
+  } else {
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
   }
 }
 
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(ACCESS_TOKEN_KEY);
 }
 
+export function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+/** Clears both access and refresh tokens from local storage. */
+export function clearSession(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+}
+
+/** @deprecated Use clearSession */
 export function clearAccessToken(): void {
-  if (typeof window !== "undefined") {
-    localStorage.removeItem(TOKEN_KEY);
+  clearSession();
+}
+
+function accessTokenExpired(token: string, skewSeconds = 30): boolean {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return true;
+    const json = JSON.parse(
+      atob(payload.replace(/-/g, "+").replace(/_/g, "/")),
+    ) as { exp?: number };
+    if (typeof json.exp !== "number") return true;
+    return json.exp * 1000 <= Date.now() + skewSeconds * 1000;
+  } catch {
+    return true;
   }
+}
+
+export async function refreshSession(
+  refreshToken: string,
+): Promise<TokenResponse> {
+  const res = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  const tokens = (await res.json()) as TokenResponse;
+  storeTokens(tokens);
+  return tokens;
+}
+
+/**
+ * Returns a non-expired access token, rotating via refresh when needed.
+ */
+export async function ensureAccessToken(): Promise<string | null> {
+  const access = getAccessToken();
+  if (access && !accessTokenExpired(access)) {
+    return access;
+  }
+  const refresh = getRefreshToken();
+  if (!refresh) {
+    return null;
+  }
+  try {
+    const tokens = await refreshSession(refresh);
+    return tokens.accessToken;
+  } catch {
+    clearSession();
+    return null;
+  }
+}
+
+/** Authenticated fetch that refreshes once on 401. */
+export async function apiFetch(
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  let token = await ensureAccessToken();
+  if (!token) {
+    throw new Error("UNAUTHORIZED: Not signed in");
+  }
+
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+
+  let res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  if (res.status !== 401) {
+    return res;
+  }
+
+  const refresh = getRefreshToken();
+  if (!refresh) {
+    clearSession();
+    return res;
+  }
+
+  try {
+    const tokens = await refreshSession(refresh);
+    token = tokens.accessToken;
+  } catch {
+    clearSession();
+    return res;
+  }
+
+  headers.set("Authorization", `Bearer ${token}`);
+  return fetch(`${API_URL}${path}`, { ...init, headers });
 }

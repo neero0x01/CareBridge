@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import { login, me, storeAccessToken } from "@/lib/api";
+import { login, me, storeTokens } from "@/lib/api";
 
 export default function LoginPage() {
   const [tenantSlug, setTenantSlug] = useState("");
@@ -19,7 +19,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const tokens = await login({ tenantSlug, email, password });
-      storeAccessToken(tokens.accessToken);
+      storeTokens(tokens);
       const profile = await me(tokens.accessToken);
       const mustChange = profile.user.mustChangePassword
         ? " · must change password before other APIs"

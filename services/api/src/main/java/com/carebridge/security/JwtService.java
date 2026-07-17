@@ -42,6 +42,7 @@ public class JwtService {
     JWTClaimsSet claims =
         new JWTClaimsSet.Builder()
             .subject(user.getId().toString())
+            .jwtID(UUID.randomUUID().toString())
             .issuer(properties.getJwt().getIssuer())
             .issueTime(Date.from(now))
             .expirationTime(Date.from(exp))

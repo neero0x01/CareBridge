@@ -6,6 +6,7 @@ import com.carebridge.config.CarebridgeProperties;
 import com.carebridge.identity.dto.ChangePasswordRequest;
 import com.carebridge.identity.dto.LoginRequest;
 import com.carebridge.identity.dto.MeResponse;
+import com.carebridge.identity.dto.RefreshRequest;
 import com.carebridge.identity.dto.RegisterTenantRequest;
 import com.carebridge.identity.dto.RegisterTenantResponse;
 import com.carebridge.identity.dto.TenantResponse;
@@ -13,8 +14,15 @@ import com.carebridge.identity.dto.TokenResponse;
 import com.carebridge.identity.dto.UserResponse;
 import com.carebridge.security.AuthenticatedUser;
 import com.carebridge.security.JwtService;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -24,8 +32,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AuthService {
 
+  private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
   private final TenantRepository tenantRepository;
   private final UserRepository userRepository;
+  private final RefreshTokenRepository refreshTokenRepository;
+  private final RefreshTokenFamilyService refreshTokenFamilyService;
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
   private final CarebridgeProperties properties;
@@ -33,11 +45,15 @@ public class AuthService {
   public AuthService(
       TenantRepository tenantRepository,
       UserRepository userRepository,
+      RefreshTokenRepository refreshTokenRepository,
+      RefreshTokenFamilyService refreshTokenFamilyService,
       PasswordEncoder passwordEncoder,
       JwtService jwtService,
       CarebridgeProperties properties) {
     this.tenantRepository = tenantRepository;
     this.userRepository = userRepository;
+    this.refreshTokenRepository = refreshTokenRepository;
+    this.refreshTokenFamilyService = refreshTokenFamilyService;
     this.passwordEncoder = passwordEncoder;
     this.jwtService = jwtService;
     this.properties = properties;
@@ -75,12 +91,12 @@ public class AuthService {
             now);
     userRepository.save(admin);
 
-    TokenResponse tokens = issueTokens(admin);
+    TokenResponse tokens = issueTokens(admin, UUID.randomUUID());
     return RegisterTenantResponse.of(
         TenantResponse.from(tenant), UserResponse.from(admin), tokens);
   }
 
-  @Transactional(readOnly = true)
+  @Transactional
   public TokenResponse login(LoginRequest request) {
     String slug = request.tenantSlug().toLowerCase(Locale.ROOT).trim();
     Tenant tenant =
@@ -105,7 +121,43 @@ public class AuthService {
           ErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED, "Invalid credentials");
     }
 
-    return issueTokens(user);
+    return issueTokens(user, UUID.randomUUID());
+  }
+
+  @Transactional
+  public TokenResponse refresh(RefreshRequest request) {
+    String presented = request.refreshToken().trim();
+    String hash = hashToken(presented);
+    Optional<RefreshToken> found = refreshTokenRepository.findByTokenHash(hash);
+
+    if (found.isEmpty()) {
+      throw unauthorizedRefresh();
+    }
+
+    RefreshToken stored = found.get();
+    if (stored.isRevoked()) {
+      // Commits in a nested TX so the throw below cannot undo family revoke.
+      refreshTokenFamilyService.revokeFamily(stored.getFamilyId());
+      throw unauthorizedRefresh();
+    }
+
+    if (stored.getExpiresAt().isBefore(Instant.now())) {
+      stored.setRevoked(true);
+      throw unauthorizedRefresh();
+    }
+
+    User user =
+        userRepository
+            .findById(stored.getUserId())
+            .orElseThrow(AuthService::unauthorizedRefresh);
+
+    if (!user.isActive()) {
+      refreshTokenFamilyService.revokeFamily(stored.getFamilyId());
+      throw unauthorizedRefresh();
+    }
+
+    stored.setRevoked(true);
+    return issueTokens(user, stored.getFamilyId());
   }
 
   @Transactional(readOnly = true)
@@ -151,11 +203,47 @@ public class AuthService {
     return UserResponse.from(user);
   }
 
-  private TokenResponse issueTokens(User user) {
+  private TokenResponse issueTokens(User user, UUID familyId) {
     String accessToken = jwtService.createAccessToken(user);
     long expiresIn = jwtService.accessTokenExpiresInSeconds();
-    // refreshToken is a placeholder until MUH-9 wires rotation.
-    return new TokenResponse(accessToken, null, expiresIn);
+
+    String rawRefresh = generateRawToken();
+    Instant now = Instant.now();
+    Instant refreshExpires = now.plus(properties.getJwt().getRefreshTokenTtl());
+
+    RefreshToken row =
+        new RefreshToken(
+            UUID.randomUUID(),
+            user.getId(),
+            hashToken(rawRefresh),
+            familyId,
+            refreshExpires,
+            false,
+            now);
+    refreshTokenRepository.save(row);
+
+    return new TokenResponse(accessToken, rawRefresh, expiresIn);
+  }
+
+  private static ApiException unauthorizedRefresh() {
+    return new ApiException(
+        ErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED, "Invalid refresh token");
+  }
+
+  private static String generateRawToken() {
+    byte[] bytes = new byte[32];
+    SECURE_RANDOM.nextBytes(bytes);
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+  }
+
+  static String hashToken(String rawToken) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      byte[] hashed = digest.digest(rawToken.getBytes(StandardCharsets.UTF_8));
+      return HexFormat.of().formatHex(hashed);
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 not available", e);
+    }
   }
 
   static String normalizeEmail(String email) {
