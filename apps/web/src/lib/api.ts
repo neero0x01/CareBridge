@@ -39,6 +39,57 @@ export type MeResponse = {
   tenant: TenantResponse;
 };
 
+export type CaseType =
+  | "REFERRAL"
+  | "PRESCRIPTION_REVIEW"
+  | "DISCHARGE"
+  | "LAB_FOLLOWUP"
+  | "OTHER";
+
+export type CasePriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+
+export type CaseStatus =
+  | "TO_DO"
+  | "IN_REVIEW"
+  | "NEEDS_INFO"
+  | "APPROVED"
+  | "REJECTED";
+
+export type CaseResponse = {
+  id: string;
+  tenantId: string;
+  caseNumber: string;
+  title: string;
+  type: CaseType;
+  priority: CasePriority;
+  status: CaseStatus;
+  patientDisplayName: string;
+  patientRef: string;
+  description: string | null;
+  createdBy: string;
+  assigneeId: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CasePageResponse = {
+  content: CaseResponse[];
+  number: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
+
+export type CreateCaseInput = {
+  title: string;
+  type: CaseType;
+  priority: CasePriority;
+  patientDisplayName: string;
+  patientRef: string;
+  description?: string;
+};
+
 export type ApiErrorBody = {
   code?: string;
   message?: string;
@@ -282,6 +333,51 @@ export async function ensureAccessToken(): Promise<string | null> {
     clearSession();
     return null;
   }
+}
+
+export async function listCases(params?: {
+  status?: CaseStatus;
+  assignee?: string;
+  priority?: CasePriority;
+  q?: string;
+  page?: number;
+  size?: number;
+}): Promise<CasePageResponse> {
+  const search = new URLSearchParams();
+  if (params?.status) search.set("status", params.status);
+  if (params?.assignee) search.set("assignee", params.assignee);
+  if (params?.priority) search.set("priority", params.priority);
+  if (params?.q) search.set("q", params.q);
+  if (params?.page != null) search.set("page", String(params.page));
+  if (params?.size != null) search.set("size", String(params.size));
+  const qs = search.toString();
+  const res = await apiFetch(`/api/v1/cases${qs ? `?${qs}` : ""}`);
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<CasePageResponse>;
+}
+
+export async function createCase(
+  input: CreateCaseInput,
+): Promise<CaseResponse> {
+  const res = await apiFetch("/api/v1/cases", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<CaseResponse>;
+}
+
+export async function getCase(caseId: string): Promise<CaseResponse> {
+  const res = await apiFetch(`/api/v1/cases/${caseId}`);
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<CaseResponse>;
 }
 
 /** Authenticated fetch that refreshes once on 401. */

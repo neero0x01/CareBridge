@@ -85,9 +85,17 @@ export default function LoginPage() {
             </p>
           )}
           {status && (
-            <p className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-800">
-              {status}
-            </p>
+            <div className="space-y-2">
+              <p className="rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-800">
+                {status}
+              </p>
+              <Link
+                href="/board"
+                className="block text-center text-sm font-medium text-teal-700 hover:underline"
+              >
+                Open board
+              </Link>
+            </div>
           )}
 
           <button
