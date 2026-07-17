@@ -446,6 +446,39 @@ export async function listCaseTransitions(
   return res.json() as Promise<CaseTransitionResponse[]>;
 }
 
+export type CaseCommentResponse = {
+  id: string;
+  caseId: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+};
+
+export async function listCaseComments(
+  caseId: string,
+): Promise<CaseCommentResponse[]> {
+  const res = await apiFetch(`/api/v1/cases/${caseId}/comments`);
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<CaseCommentResponse[]>;
+}
+
+export async function addCaseComment(
+  caseId: string,
+  body: string,
+): Promise<CaseCommentResponse> {
+  const res = await apiFetch(`/api/v1/cases/${caseId}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<CaseCommentResponse>;
+}
+
 /** Authenticated fetch that refreshes once on 401. */
 export async function apiFetch(
   path: string,

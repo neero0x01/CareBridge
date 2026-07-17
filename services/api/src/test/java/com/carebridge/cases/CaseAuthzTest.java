@@ -139,4 +139,15 @@ class CaseAuthzTest {
     assertThat(CaseAuthz.canEditFields(Role.REVIEWER, CaseStatus.TO_DO, reviewerId, creatorId))
         .isFalse();
   }
+
+  @Test
+  void commentAllowedForNonAuditorOnNonTerminalOnly() {
+    assertThat(CaseAuthz.canComment(Role.ORG_ADMIN, CaseStatus.TO_DO)).isTrue();
+    assertThat(CaseAuthz.canComment(Role.CLINICIAN, CaseStatus.IN_REVIEW)).isTrue();
+    assertThat(CaseAuthz.canComment(Role.REVIEWER, CaseStatus.NEEDS_INFO)).isTrue();
+    assertThat(CaseAuthz.canComment(Role.AUDITOR, CaseStatus.TO_DO)).isFalse();
+    assertThat(CaseAuthz.canComment(Role.ORG_ADMIN, CaseStatus.APPROVED)).isFalse();
+    assertThat(CaseAuthz.canComment(Role.CLINICIAN, CaseStatus.REJECTED)).isFalse();
+    assertThat(CaseAuthz.canComment(Role.REVIEWER, CaseStatus.APPROVED)).isFalse();
+  }
 }

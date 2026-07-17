@@ -61,11 +61,19 @@ public final class CaseAuthz {
       return false;
     }
     if (role == Role.ORG_ADMIN) {
-      return !CaseWorkflow.isTerminal(status);
+      return true;
     }
     if (role == Role.CLINICIAN) {
       return status == CaseStatus.TO_DO && Objects.equals(actorId, creatorId);
     }
     return false;
+  }
+
+  /** Comments are allowed for non-AUDITOR roles on non-terminal Cases only. */
+  public static boolean canComment(Role role, CaseStatus status) {
+    if (role == Role.AUDITOR) {
+      return false;
+    }
+    return !CaseWorkflow.isTerminal(status);
   }
 }

@@ -1,10 +1,12 @@
 package com.carebridge.cases;
 
 import com.carebridge.cases.dto.AssignCaseRequest;
+import com.carebridge.cases.dto.CaseCommentResponse;
 import com.carebridge.cases.dto.CaseResponse;
 import com.carebridge.cases.dto.CaseTransitionResponse;
 import com.carebridge.cases.dto.ClaimCaseRequest;
 import com.carebridge.cases.dto.CreateCaseRequest;
+import com.carebridge.cases.dto.CreateCommentRequest;
 import com.carebridge.cases.dto.PatchCaseRequest;
 import com.carebridge.cases.dto.TransitionCaseRequest;
 import com.carebridge.common.error.ApiException;
@@ -30,16 +32,19 @@ public class CaseService {
   private final CaseRepository caseRepository;
   private final TenantCaseCounterRepository counterRepository;
   private final CaseTransitionRepository transitionRepository;
+  private final CaseCommentRepository commentRepository;
   private final UserRepository userRepository;
 
   public CaseService(
       CaseRepository caseRepository,
       TenantCaseCounterRepository counterRepository,
       CaseTransitionRepository transitionRepository,
+      CaseCommentRepository commentRepository,
       UserRepository userRepository) {
     this.caseRepository = caseRepository;
     this.counterRepository = counterRepository;
     this.transitionRepository = transitionRepository;
+    this.commentRepository = commentRepository;
     this.userRepository = userRepository;
   }
 
@@ -116,6 +121,7 @@ public class CaseService {
   public CaseResponse patch(AuthenticatedUser principal, UUID caseId, PatchCaseRequest request) {
     CaseEntity entity = requireCase(principal.tenantId(), caseId);
     assertVersion(entity, request.version());
+    assertNotTerminal(entity, "edit fields on");
 
     if (!CaseAuthz.canEditFields(
         principal.role(), entity.getStatus(), principal.userId(), entity.getCreatedBy())) {
@@ -163,10 +169,7 @@ public class CaseService {
     if (principal.role() != Role.ORG_ADMIN) {
       throw new ApiException(ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, "Forbidden");
     }
-    if (CaseWorkflow.isTerminal(entity.getStatus())) {
-      throw new ApiException(
-          ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, "Cannot assign a terminal Case");
-    }
+    assertNotTerminal(entity, "assign");
 
     User assignee =
         userRepository
@@ -205,6 +208,7 @@ public class CaseService {
       AuthenticatedUser principal, UUID caseId, TransitionCaseRequest request) {
     CaseEntity entity = requireCase(principal.tenantId(), caseId);
     assertVersion(entity, request.version());
+    assertNotTerminal(entity, "transition");
 
     CaseStatus from = entity.getStatus();
     CaseStatus to = request.toStatus();
@@ -238,6 +242,39 @@ public class CaseService {
         .findByCaseIdAndTenantIdOrderByCreatedAtAsc(caseId, principal.tenantId())
         .stream()
         .map(CaseTransitionResponse::from)
+        .toList();
+  }
+
+  @Transactional
+  public CaseCommentResponse addComment(
+      AuthenticatedUser principal, UUID caseId, CreateCommentRequest request) {
+    CaseEntity entity = requireCase(principal.tenantId(), caseId);
+    assertNotTerminal(entity, "comment on");
+
+    if (!CaseAuthz.canComment(principal.role(), entity.getStatus())) {
+      throw new ApiException(
+          ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, "AUDITOR cannot comment on Cases");
+    }
+
+    CaseCommentEntity comment =
+        new CaseCommentEntity(
+            UUID.randomUUID(),
+            entity.getId(),
+            entity.getTenantId(),
+            principal.userId(),
+            request.body().trim(),
+            Instant.now());
+    commentRepository.save(comment);
+    return CaseCommentResponse.from(comment);
+  }
+
+  @Transactional(readOnly = true)
+  public List<CaseCommentResponse> listComments(AuthenticatedUser principal, UUID caseId) {
+    requireCase(principal.tenantId(), caseId);
+    return commentRepository
+        .findByCaseIdAndTenantIdOrderByCreatedAtAsc(caseId, principal.tenantId())
+        .stream()
+        .map(CaseCommentResponse::from)
         .toList();
   }
 
@@ -276,6 +313,15 @@ public class CaseService {
         ErrorCode.ILLEGAL_TRANSITION,
         HttpStatus.CONFLICT,
         "Cannot move from " + from + " to " + to);
+  }
+
+  private static void assertNotTerminal(CaseEntity entity, String action) {
+    if (CaseWorkflow.isTerminal(entity.getStatus())) {
+      throw new ApiException(
+          ErrorCode.FORBIDDEN,
+          HttpStatus.FORBIDDEN,
+          "Cannot " + action + " a terminal Case (" + entity.getStatus() + ")");
+    }
   }
 
   private CaseEntity requireCase(UUID tenantId, UUID caseId) {

@@ -1,10 +1,12 @@
 package com.carebridge.cases;
 
 import com.carebridge.cases.dto.AssignCaseRequest;
+import com.carebridge.cases.dto.CaseCommentResponse;
 import com.carebridge.cases.dto.CaseResponse;
 import com.carebridge.cases.dto.CaseTransitionResponse;
 import com.carebridge.cases.dto.ClaimCaseRequest;
 import com.carebridge.cases.dto.CreateCaseRequest;
+import com.carebridge.cases.dto.CreateCommentRequest;
 import com.carebridge.cases.dto.PageResponse;
 import com.carebridge.cases.dto.PatchCaseRequest;
 import com.carebridge.cases.dto.TransitionCaseRequest;
@@ -108,5 +110,22 @@ public class CaseController {
   public List<CaseTransitionResponse> listTransitions(
       @AuthenticationPrincipal AuthenticatedUser principal, @PathVariable UUID id) {
     return caseService.listTransitions(principal, id);
+  }
+
+  @PostMapping("/{id}/comments")
+  @ResponseStatus(HttpStatus.CREATED)
+  @PreAuthorize("isAuthenticated()")
+  public CaseCommentResponse addComment(
+      @AuthenticationPrincipal AuthenticatedUser principal,
+      @PathVariable UUID id,
+      @Valid @RequestBody CreateCommentRequest request) {
+    return caseService.addComment(principal, id, request);
+  }
+
+  @GetMapping("/{id}/comments")
+  @PreAuthorize("isAuthenticated()")
+  public List<CaseCommentResponse> listComments(
+      @AuthenticationPrincipal AuthenticatedUser principal, @PathVariable UUID id) {
+    return caseService.listComments(principal, id);
   }
 }

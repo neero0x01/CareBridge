@@ -4,15 +4,18 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
+  addCaseComment,
   assignCase,
   claimCase,
   clearSession,
   ensureAccessToken,
   getCase,
+  listCaseComments,
   listCaseTransitions,
   listUsers,
   me,
   transitionCase,
+  type CaseCommentResponse,
   type CaseResponse,
   type CaseStatus,
   type CaseTransitionResponse,
@@ -27,6 +30,10 @@ const STATUS_LABELS: Record<CaseStatus, string> = {
   REJECTED: "Rejected",
 };
 
+function isTerminal(status: CaseStatus): boolean {
+  return status === "APPROVED" || status === "REJECTED";
+}
+
 type Action =
   | { kind: "claim"; label: string }
   | { kind: "transition"; toStatus: CaseStatus; label: string };
@@ -36,6 +43,9 @@ function allowedActions(
   role: string,
   userId: string,
 ): Action[] {
+  if (isTerminal(c.status)) {
+    return [];
+  }
   const actions: Action[] = [];
   if (role === "REVIEWER" && c.status === "TO_DO" && !c.assigneeId) {
     actions.push({ kind: "claim", label: "Claim" });
@@ -66,17 +76,23 @@ function allowedActions(
   return actions;
 }
 
+function canPostComment(role: string, status: CaseStatus): boolean {
+  return role !== "AUDITOR" && !isTerminal(status);
+}
+
 export default function CaseDetailPage() {
   const params = useParams();
   const caseId = typeof params.id === "string" ? params.id : "";
 
   const [c, setCase] = useState<CaseResponse | null>(null);
   const [history, setHistory] = useState<CaseTransitionResponse[]>([]);
+  const [comments, setComments] = useState<CaseCommentResponse[]>([]);
   const [role, setRole] = useState("");
   const [userId, setUserId] = useState("");
   const [reviewers, setReviewers] = useState<UserResponse[]>([]);
   const [assigneeId, setAssigneeId] = useState("");
   const [comment, setComment] = useState("");
+  const [threadBody, setThreadBody] = useState("");
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,12 +117,14 @@ export default function CaseDetailPage() {
       const profile = await me();
       setRole(profile.user.role);
       setUserId(profile.user.id);
-      const [detail, transitions] = await Promise.all([
+      const [detail, transitions, caseComments] = await Promise.all([
         getCase(caseId),
         listCaseTransitions(caseId),
+        listCaseComments(caseId),
       ]);
       setCase(detail);
       setHistory(transitions);
+      setComments(caseComments);
       if (profile.user.role === "ORG_ADMIN") {
         try {
           const users = await listUsers();
@@ -173,6 +191,24 @@ export default function CaseDetailPage() {
       setStatusMsg("Assigned reviewer.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Assign failed");
+    } finally {
+      setActing(false);
+    }
+  }
+
+  async function onPostComment(e: FormEvent) {
+    e.preventDefault();
+    if (!c || !threadBody.trim()) return;
+    setError(null);
+    setStatusMsg(null);
+    setActing(true);
+    try {
+      await addCaseComment(c.id, threadBody.trim());
+      setComments(await listCaseComments(c.id));
+      setThreadBody("");
+      setStatusMsg("Comment posted.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Comment failed");
     } finally {
       setActing(false);
     }
@@ -273,72 +309,133 @@ export default function CaseDetailPage() {
 
         <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold">Actions</h2>
-          {actions.length === 0 && role !== "ORG_ADMIN" && (
-            <p className="mt-2 text-sm text-slate-600">No actions available for your role.</p>
-          )}
-
-          {(actions.some((a) => a.kind === "transition") || actions.length > 0) && (
-            <div className="mt-4 space-y-3">
-              {actions.some((a) => a.kind === "transition") && (
-                <label className="block text-sm">
-                  <span className="font-medium text-slate-700">Comment (optional)</span>
-                  <textarea
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none ring-teal-600 focus:ring-2"
-                    rows={2}
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                  />
-                </label>
+          {isTerminal(c.status) ? (
+            <p className="mt-2 text-sm text-slate-600">
+              This Case is {STATUS_LABELS[c.status].toLowerCase()} and frozen — no edits,
+              transitions, or new comments.
+            </p>
+          ) : (
+            <>
+              {actions.length === 0 && role !== "ORG_ADMIN" && (
+                <p className="mt-2 text-sm text-slate-600">
+                  No actions available for your role.
+                </p>
               )}
-              <div className="flex flex-wrap gap-2">
-                {actions.map((action) => (
-                  <button
-                    key={action.label}
-                    type="button"
-                    disabled={acting}
-                    onClick={() => void runAction(action)}
-                    className="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
-                  >
-                    {action.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {role === "ORG_ADMIN" &&
-            c.status !== "APPROVED" &&
-            c.status !== "REJECTED" &&
-            reviewers.length > 0 && (
-              <form onSubmit={onAssign} className="mt-6 border-t border-slate-100 pt-4">
-                <h3 className="text-sm font-semibold text-slate-800">Assign reviewer</h3>
-                <div className="mt-2 flex flex-wrap items-end gap-2">
-                  <label className="block flex-1 text-sm">
-                    <span className="font-medium text-slate-700">Reviewer</span>
-                    <select
-                      className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none ring-teal-600 focus:ring-2"
-                      value={assigneeId}
-                      onChange={(e) => setAssigneeId(e.target.value)}
-                      required
-                    >
-                      <option value="">Select…</option>
-                      {reviewers.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.fullName} ({r.email})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={acting || !assigneeId}
-                    className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
-                  >
-                    Assign
-                  </button>
+              {(actions.some((a) => a.kind === "transition") || actions.length > 0) && (
+                <div className="mt-4 space-y-3">
+                  {actions.some((a) => a.kind === "transition") && (
+                    <label className="block text-sm">
+                      <span className="font-medium text-slate-700">
+                        Transition note (optional)
+                      </span>
+                      <textarea
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none ring-teal-600 focus:ring-2"
+                        rows={2}
+                        value={comment}
+                        onChange={(e) => setComment(e.target.value)}
+                      />
+                    </label>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    {actions.map((action) => (
+                      <button
+                        key={action.label}
+                        type="button"
+                        disabled={acting}
+                        onClick={() => void runAction(action)}
+                        className="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </form>
-            )}
+              )}
+
+              {role === "ORG_ADMIN" && reviewers.length > 0 && (
+                <form onSubmit={onAssign} className="mt-6 border-t border-slate-100 pt-4">
+                  <h3 className="text-sm font-semibold text-slate-800">Assign reviewer</h3>
+                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                    <label className="block flex-1 text-sm">
+                      <span className="font-medium text-slate-700">Reviewer</span>
+                      <select
+                        className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none ring-teal-600 focus:ring-2"
+                        value={assigneeId}
+                        onChange={(e) => setAssigneeId(e.target.value)}
+                        required
+                      >
+                        <option value="">Select…</option>
+                        {reviewers.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.fullName} ({r.email})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={acting || !assigneeId}
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      Assign
+                    </button>
+                  </div>
+                </form>
+              )}
+            </>
+          )}
+        </section>
+
+        <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold">Comments</h2>
+          {comments.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-600">No comments yet.</p>
+          ) : (
+            <ol className="mt-4 space-y-3">
+              {comments.map((item) => (
+                <li
+                  key={item.id}
+                  className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm"
+                >
+                  <p className="whitespace-pre-wrap text-slate-800">{item.body}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {new Date(item.createdAt).toLocaleString()} ·{" "}
+                    <span className="font-mono">{item.authorId.slice(0, 8)}…</span>
+                  </p>
+                </li>
+              ))}
+            </ol>
+          )}
+          {canPostComment(role, c.status) ? (
+            <form onSubmit={onPostComment} className="mt-4 border-t border-slate-100 pt-4">
+              <label className="block text-sm">
+                <span className="font-medium text-slate-700">Add a comment</span>
+                <textarea
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none ring-teal-600 focus:ring-2"
+                  rows={3}
+                  value={threadBody}
+                  onChange={(e) => setThreadBody(e.target.value)}
+                  required
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={acting || !threadBody.trim()}
+                className="mt-2 rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+              >
+                Post comment
+              </button>
+            </form>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500">
+              {role === "AUDITOR"
+                ? "AUDITOR can read comments but cannot post."
+                : isTerminal(c.status)
+                  ? "Comments are closed on terminal Cases."
+                  : null}
+            </p>
+          )}
         </section>
 
         <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
