@@ -64,6 +64,8 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers(HttpMethod.POST, "/api/v1/auth/refresh")
                     .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/webhooks/inbound")
+                    .permitAll()
                     .requestMatchers("/api/v1/public/**")
                     .permitAll()
                     .anyRequest()

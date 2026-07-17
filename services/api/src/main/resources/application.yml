@@ -44,6 +44,9 @@ carebridge:
     register-tenant-enabled: ${REGISTER_TENANT_ENABLED:true}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  webhooks:
+    # AES-256 key, Base64 of 32 bytes. Override via WEBHOOK_ENCRYPTION_KEY in real deploys.
+    encryption-key-base64: ${WEBHOOK_ENCRYPTION_KEY:Y2FyZWJyaWRnZS1sb2NhbC13ZWJob29rLWtleSEhISE=}
 
 logging:
   level:

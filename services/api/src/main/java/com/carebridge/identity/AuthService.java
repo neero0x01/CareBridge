@@ -14,6 +14,7 @@ import com.carebridge.identity.dto.TokenResponse;
 import com.carebridge.identity.dto.UserResponse;
 import com.carebridge.security.AuthenticatedUser;
 import com.carebridge.security.JwtService;
+import com.carebridge.webhooks.WebhookSecretService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -41,6 +42,7 @@ public class AuthService {
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
   private final CarebridgeProperties properties;
+  private final WebhookSecretService webhookSecretService;
 
   public AuthService(
       TenantRepository tenantRepository,
@@ -49,7 +51,8 @@ public class AuthService {
       RefreshTokenFamilyService refreshTokenFamilyService,
       PasswordEncoder passwordEncoder,
       JwtService jwtService,
-      CarebridgeProperties properties) {
+      CarebridgeProperties properties,
+      WebhookSecretService webhookSecretService) {
     this.tenantRepository = tenantRepository;
     this.userRepository = userRepository;
     this.refreshTokenRepository = refreshTokenRepository;
@@ -57,6 +60,7 @@ public class AuthService {
     this.passwordEncoder = passwordEncoder;
     this.jwtService = jwtService;
     this.properties = properties;
+    this.webhookSecretService = webhookSecretService;
   }
 
   @Transactional
@@ -73,7 +77,14 @@ public class AuthService {
 
     Instant now = Instant.now();
     UUID tenantId = UUID.randomUUID();
-    Tenant tenant = new Tenant(tenantId, request.tenantName().trim(), slug, now);
+    WebhookSecretService.GeneratedSecret webhookSecret = webhookSecretService.generateEncrypted();
+    Tenant tenant =
+        new Tenant(
+            tenantId,
+            request.tenantName().trim(),
+            slug,
+            now,
+            webhookSecret.ciphertext());
     tenantRepository.save(tenant);
 
     String email = normalizeEmail(request.adminEmail());
@@ -93,7 +104,10 @@ public class AuthService {
 
     TokenResponse tokens = issueTokens(admin, UUID.randomUUID());
     return RegisterTenantResponse.of(
-        TenantResponse.from(tenant), UserResponse.from(admin), tokens);
+        TenantResponse.from(tenant),
+        UserResponse.from(admin),
+        tokens,
+        webhookSecret.plaintext());
   }
 
   @Transactional
