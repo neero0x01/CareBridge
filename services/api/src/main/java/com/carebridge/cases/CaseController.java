@@ -1,11 +1,16 @@
 package com.carebridge.cases;
 
+import com.carebridge.cases.dto.AssignCaseRequest;
 import com.carebridge.cases.dto.CaseResponse;
+import com.carebridge.cases.dto.CaseTransitionResponse;
+import com.carebridge.cases.dto.ClaimCaseRequest;
 import com.carebridge.cases.dto.CreateCaseRequest;
 import com.carebridge.cases.dto.PageResponse;
 import com.carebridge.cases.dto.PatchCaseRequest;
+import com.carebridge.cases.dto.TransitionCaseRequest;
 import com.carebridge.security.AuthenticatedUser;
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -69,5 +74,39 @@ public class CaseController {
       @PathVariable UUID id,
       @Valid @RequestBody PatchCaseRequest request) {
     return caseService.patch(principal, id, request);
+  }
+
+  @PostMapping("/{id}/claim")
+  @PreAuthorize("isAuthenticated()")
+  public CaseResponse claim(
+      @AuthenticationPrincipal AuthenticatedUser principal,
+      @PathVariable UUID id,
+      @Valid @RequestBody ClaimCaseRequest request) {
+    return caseService.claim(principal, id, request);
+  }
+
+  @PostMapping("/{id}/assign")
+  @PreAuthorize("isAuthenticated()")
+  public CaseResponse assign(
+      @AuthenticationPrincipal AuthenticatedUser principal,
+      @PathVariable UUID id,
+      @Valid @RequestBody AssignCaseRequest request) {
+    return caseService.assign(principal, id, request);
+  }
+
+  @PostMapping("/{id}/transitions")
+  @PreAuthorize("isAuthenticated()")
+  public CaseResponse transition(
+      @AuthenticationPrincipal AuthenticatedUser principal,
+      @PathVariable UUID id,
+      @Valid @RequestBody TransitionCaseRequest request) {
+    return caseService.transition(principal, id, request);
+  }
+
+  @GetMapping("/{id}/transitions")
+  @PreAuthorize("isAuthenticated()")
+  public List<CaseTransitionResponse> listTransitions(
+      @AuthenticationPrincipal AuthenticatedUser principal, @PathVariable UUID id) {
+    return caseService.listTransitions(principal, id);
   }
 }

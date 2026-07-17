@@ -309,9 +309,10 @@ export default function BoardPage() {
                     <p className="px-2 py-6 text-center text-xs text-slate-500">No cases</p>
                   ) : (
                     columnCases.map((c) => (
-                      <article
+                      <Link
                         key={c.id}
-                        className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+                        href={`/cases/${c.id}`}
+                        className="block rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:border-teal-300 hover:shadow"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-xs font-medium text-teal-700">{c.caseNumber}</p>
@@ -330,7 +331,7 @@ export default function BoardPage() {
                         <p className="mt-1 text-[11px] uppercase tracking-wide text-slate-400">
                           {c.type.replaceAll("_", " ")}
                         </p>
-                      </article>
+                      </Link>
                     ))
                   )}
                 </div>

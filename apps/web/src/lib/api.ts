@@ -380,6 +380,72 @@ export async function getCase(caseId: string): Promise<CaseResponse> {
   return res.json() as Promise<CaseResponse>;
 }
 
+export type CaseTransitionResponse = {
+  id: string;
+  caseId: string;
+  fromStatus: CaseStatus;
+  toStatus: CaseStatus;
+  actorId: string;
+  comment: string | null;
+  createdAt: string;
+};
+
+export async function claimCase(
+  caseId: string,
+  version: number,
+): Promise<CaseResponse> {
+  const res = await apiFetch(`/api/v1/cases/${caseId}/claim`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<CaseResponse>;
+}
+
+export async function assignCase(
+  caseId: string,
+  assigneeId: string,
+  version: number,
+): Promise<CaseResponse> {
+  const res = await apiFetch(`/api/v1/cases/${caseId}/assign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assigneeId, version }),
+  });
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<CaseResponse>;
+}
+
+export async function transitionCase(
+  caseId: string,
+  input: { toStatus: CaseStatus; comment?: string; version: number },
+): Promise<CaseResponse> {
+  const res = await apiFetch(`/api/v1/cases/${caseId}/transitions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<CaseResponse>;
+}
+
+export async function listCaseTransitions(
+  caseId: string,
+): Promise<CaseTransitionResponse[]> {
+  const res = await apiFetch(`/api/v1/cases/${caseId}/transitions`);
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<CaseTransitionResponse[]>;
+}
+
 /** Authenticated fetch that refreshes once on 401. */
 export async function apiFetch(
   path: string,

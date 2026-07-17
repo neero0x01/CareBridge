@@ -1,13 +1,20 @@
 package com.carebridge.cases;
 
+import com.carebridge.cases.dto.AssignCaseRequest;
 import com.carebridge.cases.dto.CaseResponse;
+import com.carebridge.cases.dto.CaseTransitionResponse;
+import com.carebridge.cases.dto.ClaimCaseRequest;
 import com.carebridge.cases.dto.CreateCaseRequest;
 import com.carebridge.cases.dto.PatchCaseRequest;
+import com.carebridge.cases.dto.TransitionCaseRequest;
 import com.carebridge.common.error.ApiException;
 import com.carebridge.common.error.ErrorCode;
 import com.carebridge.identity.Role;
+import com.carebridge.identity.User;
+import com.carebridge.identity.UserRepository;
 import com.carebridge.security.AuthenticatedUser;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,11 +29,18 @@ public class CaseService {
 
   private final CaseRepository caseRepository;
   private final TenantCaseCounterRepository counterRepository;
+  private final CaseTransitionRepository transitionRepository;
+  private final UserRepository userRepository;
 
   public CaseService(
-      CaseRepository caseRepository, TenantCaseCounterRepository counterRepository) {
+      CaseRepository caseRepository,
+      TenantCaseCounterRepository counterRepository,
+      CaseTransitionRepository transitionRepository,
+      UserRepository userRepository) {
     this.caseRepository = caseRepository;
     this.counterRepository = counterRepository;
+    this.transitionRepository = transitionRepository;
+    this.userRepository = userRepository;
   }
 
   @Transactional
@@ -100,16 +114,12 @@ public class CaseService {
 
   @Transactional
   public CaseResponse patch(AuthenticatedUser principal, UUID caseId, PatchCaseRequest request) {
-    // Resolve tenant-scoped row first so cross-tenant access is always 404, never role 403.
     CaseEntity entity = requireCase(principal.tenantId(), caseId);
+    assertVersion(entity, request.version());
 
-    if (principal.role() != Role.ORG_ADMIN && principal.role() != Role.CLINICIAN) {
+    if (!CaseAuthz.canEditFields(
+        principal.role(), entity.getStatus(), principal.userId(), entity.getCreatedBy())) {
       throw new ApiException(ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, "Forbidden");
-    }
-
-    if (entity.getVersion() != request.version()) {
-      throw new ApiException(
-          ErrorCode.CONFLICT, HttpStatus.CONFLICT, "Case version conflict");
     }
 
     if (request.title() != null) {
@@ -122,14 +132,150 @@ public class CaseService {
       entity.setPriority(request.priority());
     }
     entity.setUpdatedAt(Instant.now());
+    flushOptimistic(entity);
+    return CaseResponse.from(entity);
+  }
 
+  @Transactional
+  public CaseResponse claim(AuthenticatedUser principal, UUID caseId, ClaimCaseRequest request) {
+    CaseEntity entity = requireCase(principal.tenantId(), caseId);
+    assertVersion(entity, request.version());
+
+    if (!CaseAuthz.canClaim(principal.role(), entity.getStatus(), entity.getAssigneeId())) {
+      throw new ApiException(
+          ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, "Cannot claim this Case");
+    }
+
+    CaseStatus from = entity.getStatus();
+    entity.setAssigneeId(principal.userId());
+    entity.setStatus(CaseStatus.IN_REVIEW);
+    entity.setUpdatedAt(Instant.now());
+    recordTransition(entity, from, CaseStatus.IN_REVIEW, principal.userId(), "Claimed");
+    flushOptimistic(entity);
+    return CaseResponse.from(entity);
+  }
+
+  @Transactional
+  public CaseResponse assign(AuthenticatedUser principal, UUID caseId, AssignCaseRequest request) {
+    CaseEntity entity = requireCase(principal.tenantId(), caseId);
+    assertVersion(entity, request.version());
+
+    if (principal.role() != Role.ORG_ADMIN) {
+      throw new ApiException(ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, "Forbidden");
+    }
+    if (CaseWorkflow.isTerminal(entity.getStatus())) {
+      throw new ApiException(
+          ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, "Cannot assign a terminal Case");
+    }
+
+    User assignee =
+        userRepository
+            .findByIdAndTenantId(request.assigneeId(), principal.tenantId())
+            .orElseThrow(
+                () ->
+                    new ApiException(
+                        ErrorCode.INVALID_ASSIGNEE,
+                        HttpStatus.BAD_REQUEST,
+                        "Assignee not found in tenant"));
+
+    if (!assignee.isActive() || !CaseAuthz.canAssign(principal.role(), assignee.getRole())) {
+      throw new ApiException(
+          ErrorCode.INVALID_ASSIGNEE,
+          HttpStatus.BAD_REQUEST,
+          "Assignee must be an active REVIEWER in this Tenant");
+    }
+
+    CaseStatus from = entity.getStatus();
+    entity.setAssigneeId(assignee.getId());
+    Instant now = Instant.now();
+    entity.setUpdatedAt(now);
+
+    if (from == CaseStatus.TO_DO) {
+      entity.setStatus(CaseStatus.IN_REVIEW);
+      recordTransition(
+          entity, from, CaseStatus.IN_REVIEW, principal.userId(), "Assigned to reviewer");
+    }
+
+    flushOptimistic(entity);
+    return CaseResponse.from(entity);
+  }
+
+  @Transactional
+  public CaseResponse transition(
+      AuthenticatedUser principal, UUID caseId, TransitionCaseRequest request) {
+    CaseEntity entity = requireCase(principal.tenantId(), caseId);
+    assertVersion(entity, request.version());
+
+    CaseStatus from = entity.getStatus();
+    CaseStatus to = request.toStatus();
+
+    if (!CaseWorkflow.isLegalEdge(from, to)) {
+      throw illegalTransition(from, to);
+    }
+    if (!CaseAuthz.canTransition(
+        principal.role(),
+        from,
+        to,
+        principal.userId(),
+        entity.getCreatedBy(),
+        entity.getAssigneeId())) {
+      throw new ApiException(ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, "Forbidden");
+    }
+
+    // NEEDS_INFO keeps assignee unchanged (do not clear)
+    entity.setStatus(to);
+    entity.setUpdatedAt(Instant.now());
+    String comment = request.comment() != null ? request.comment().trim() : null;
+    recordTransition(entity, from, to, principal.userId(), comment);
+    flushOptimistic(entity);
+    return CaseResponse.from(entity);
+  }
+
+  @Transactional(readOnly = true)
+  public List<CaseTransitionResponse> listTransitions(AuthenticatedUser principal, UUID caseId) {
+    requireCase(principal.tenantId(), caseId);
+    return transitionRepository
+        .findByCaseIdAndTenantIdOrderByCreatedAtAsc(caseId, principal.tenantId())
+        .stream()
+        .map(CaseTransitionResponse::from)
+        .toList();
+  }
+
+  private void recordTransition(
+      CaseEntity entity, CaseStatus from, CaseStatus to, UUID actorId, String comment) {
+    transitionRepository.save(
+        new CaseTransitionEntity(
+            UUID.randomUUID(),
+            entity.getId(),
+            entity.getTenantId(),
+            from,
+            to,
+            actorId,
+            comment,
+            Instant.now()));
+  }
+
+  private void assertVersion(CaseEntity entity, long expectedVersion) {
+    if (entity.getVersion() != expectedVersion) {
+      throw new ApiException(
+          ErrorCode.VERSION_CONFLICT, HttpStatus.CONFLICT, "Case version conflict");
+    }
+  }
+
+  private void flushOptimistic(CaseEntity entity) {
     try {
       caseRepository.flush();
     } catch (ObjectOptimisticLockingFailureException ex) {
       throw new ApiException(
-          ErrorCode.CONFLICT, HttpStatus.CONFLICT, "Case version conflict");
+          ErrorCode.VERSION_CONFLICT, HttpStatus.CONFLICT, "Case version conflict");
     }
-    return CaseResponse.from(entity);
+  }
+
+  private static ApiException illegalTransition(CaseStatus from, CaseStatus to) {
+    return new ApiException(
+        ErrorCode.ILLEGAL_TRANSITION,
+        HttpStatus.CONFLICT,
+        "Cannot move from " + from + " to " + to);
   }
 
   private CaseEntity requireCase(UUID tenantId, UUID caseId) {
