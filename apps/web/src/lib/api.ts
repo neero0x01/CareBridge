@@ -393,7 +393,7 @@ export async function apiFetch(
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
 
-  let res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (res.status !== 401) {
     return res;
   }
