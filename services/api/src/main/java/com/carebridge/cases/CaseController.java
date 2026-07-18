@@ -7,7 +7,7 @@ import com.carebridge.cases.dto.CaseTransitionResponse;
 import com.carebridge.cases.dto.ClaimCaseRequest;
 import com.carebridge.cases.dto.CreateCaseRequest;
 import com.carebridge.cases.dto.CreateCommentRequest;
-import com.carebridge.cases.dto.PageResponse;
+import com.carebridge.common.dto.PageResponse;
 import com.carebridge.cases.dto.PatchCaseRequest;
 import com.carebridge.cases.dto.TransitionCaseRequest;
 import com.carebridge.security.AuthenticatedUser;

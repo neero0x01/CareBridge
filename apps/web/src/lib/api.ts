@@ -479,6 +479,50 @@ export async function addCaseComment(
   return res.json() as Promise<CaseCommentResponse>;
 }
 
+export type AuditLogResponse = {
+  id: string;
+  tenantId: string;
+  actorId: string | null;
+  action: string;
+  entityType: string;
+  entityId: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  ip: string | null;
+  createdAt: string;
+};
+
+export type AuditPageResponse = {
+  content: AuditLogResponse[];
+  number: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
+
+export async function listAudit(params?: {
+  entityType?: string;
+  entityId?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  size?: number;
+}): Promise<AuditPageResponse> {
+  const search = new URLSearchParams();
+  if (params?.entityType) search.set("entityType", params.entityType);
+  if (params?.entityId) search.set("entityId", params.entityId);
+  if (params?.from) search.set("from", params.from);
+  if (params?.to) search.set("to", params.to);
+  if (params?.page != null) search.set("page", String(params.page));
+  if (params?.size != null) search.set("size", String(params.size));
+  const qs = search.toString();
+  const res = await apiFetch(`/api/v1/audit${qs ? `?${qs}` : ""}`);
+  if (!res.ok) {
+    throw new Error(await parseError(res));
+  }
+  return res.json() as Promise<AuditPageResponse>;
+}
+
 /** Authenticated fetch that refreshes once on 401. */
 export async function apiFetch(
   path: string,

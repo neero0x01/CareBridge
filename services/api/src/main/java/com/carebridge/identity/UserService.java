@@ -1,5 +1,7 @@
 package com.carebridge.identity;
 
+import com.carebridge.audit.AuditActions;
+import com.carebridge.audit.AuditService;
 import com.carebridge.common.error.ApiException;
 import com.carebridge.common.error.ErrorCode;
 import com.carebridge.identity.dto.InviteUserRequest;
@@ -7,7 +9,9 @@ import com.carebridge.identity.dto.PatchUserRequest;
 import com.carebridge.identity.dto.UserResponse;
 import com.carebridge.security.AuthenticatedUser;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -19,10 +23,13 @@ public class UserService {
 
   private final UserRepository userRepository;
   private final PasswordEncoder passwordEncoder;
+  private final AuditService auditService;
 
-  public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+  public UserService(
+      UserRepository userRepository, PasswordEncoder passwordEncoder, AuditService auditService) {
     this.userRepository = userRepository;
     this.passwordEncoder = passwordEncoder;
+    this.auditService = auditService;
   }
 
   @Transactional
@@ -46,6 +53,14 @@ public class UserService {
             true,
             now);
     userRepository.save(invited);
+    auditService.record(
+        principal.tenantId(),
+        principal.userId(),
+        AuditActions.USER_INVITED,
+        AuditActions.ENTITY_USER,
+        invited.getId(),
+        null,
+        userSnapshot(invited));
     return UserResponse.from(invited);
   }
 
@@ -64,6 +79,7 @@ public class UserService {
             .orElseThrow(
                 () -> new ApiException(ErrorCode.NOT_FOUND, HttpStatus.NOT_FOUND, "User not found"));
 
+    Map<String, Object> before = userSnapshot(user);
     if (request.role() != null) {
       user.setRole(request.role());
     }
@@ -71,6 +87,26 @@ public class UserService {
       user.setActive(request.active());
     }
 
+    auditService.record(
+        principal.tenantId(),
+        principal.userId(),
+        AuditActions.USER_UPDATED,
+        AuditActions.ENTITY_USER,
+        user.getId(),
+        before,
+        userSnapshot(user));
     return UserResponse.from(user);
+  }
+
+  /** Snapshot of User fields for audit (never includes password hash). */
+  static Map<String, Object> userSnapshot(User user) {
+    Map<String, Object> snap = new LinkedHashMap<>();
+    snap.put("id", user.getId().toString());
+    snap.put("email", user.getEmail());
+    snap.put("fullName", user.getFullName());
+    snap.put("role", user.getRole().name());
+    snap.put("active", user.isActive());
+    snap.put("mustChangePassword", user.isMustChangePassword());
+    return snap;
   }
 }

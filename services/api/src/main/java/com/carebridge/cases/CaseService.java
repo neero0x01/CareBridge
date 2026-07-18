@@ -1,5 +1,7 @@
 package com.carebridge.cases;
 
+import com.carebridge.audit.AuditActions;
+import com.carebridge.audit.AuditService;
 import com.carebridge.cases.dto.AssignCaseRequest;
 import com.carebridge.cases.dto.CaseCommentResponse;
 import com.carebridge.cases.dto.CaseResponse;
@@ -16,7 +18,9 @@ import com.carebridge.identity.User;
 import com.carebridge.identity.UserRepository;
 import com.carebridge.security.AuthenticatedUser;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -34,18 +38,21 @@ public class CaseService {
   private final CaseTransitionRepository transitionRepository;
   private final CaseCommentRepository commentRepository;
   private final UserRepository userRepository;
+  private final AuditService auditService;
 
   public CaseService(
       CaseRepository caseRepository,
       TenantCaseCounterRepository counterRepository,
       CaseTransitionRepository transitionRepository,
       CaseCommentRepository commentRepository,
-      UserRepository userRepository) {
+      UserRepository userRepository,
+      AuditService auditService) {
     this.caseRepository = caseRepository;
     this.counterRepository = counterRepository;
     this.transitionRepository = transitionRepository;
     this.commentRepository = commentRepository;
     this.userRepository = userRepository;
+    this.auditService = auditService;
   }
 
   @Transactional
@@ -71,6 +78,14 @@ public class CaseService {
             now,
             now);
     caseRepository.save(entity);
+    auditService.record(
+        principal.tenantId(),
+        principal.userId(),
+        AuditActions.CASE_CREATED,
+        AuditActions.ENTITY_CASE,
+        entity.getId(),
+        null,
+        caseSnapshot(entity));
     return CaseResponse.from(entity);
   }
 
@@ -128,6 +143,7 @@ public class CaseService {
       throw new ApiException(ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, "Forbidden");
     }
 
+    Map<String, Object> before = caseSnapshot(entity);
     if (request.title() != null) {
       entity.setTitle(request.title().trim());
     }
@@ -139,6 +155,14 @@ public class CaseService {
     }
     entity.setUpdatedAt(Instant.now());
     flushOptimistic(entity);
+    auditService.record(
+        principal.tenantId(),
+        principal.userId(),
+        AuditActions.CASE_UPDATED,
+        AuditActions.ENTITY_CASE,
+        entity.getId(),
+        before,
+        caseSnapshot(entity));
     return CaseResponse.from(entity);
   }
 
@@ -152,12 +176,21 @@ public class CaseService {
           ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, "Cannot claim this Case");
     }
 
+    Map<String, Object> before = caseSnapshot(entity);
     CaseStatus from = entity.getStatus();
     entity.setAssigneeId(principal.userId());
     entity.setStatus(CaseStatus.IN_REVIEW);
     entity.setUpdatedAt(Instant.now());
     recordTransition(entity, from, CaseStatus.IN_REVIEW, principal.userId(), "Claimed");
     flushOptimistic(entity);
+    auditService.record(
+        principal.tenantId(),
+        principal.userId(),
+        AuditActions.CASE_TRANSITIONED,
+        AuditActions.ENTITY_CASE,
+        entity.getId(),
+        before,
+        caseSnapshot(entity));
     return CaseResponse.from(entity);
   }
 
@@ -188,6 +221,7 @@ public class CaseService {
           "Assignee must be an active REVIEWER in this Tenant");
     }
 
+    Map<String, Object> before = caseSnapshot(entity);
     CaseStatus from = entity.getStatus();
     entity.setAssigneeId(assignee.getId());
     Instant now = Instant.now();
@@ -200,6 +234,17 @@ public class CaseService {
     }
 
     flushOptimistic(entity);
+    // Assign is a case mutation; when it also moves status, treat as transition for audit.
+    String action =
+        from == CaseStatus.TO_DO ? AuditActions.CASE_TRANSITIONED : AuditActions.CASE_UPDATED;
+    auditService.record(
+        principal.tenantId(),
+        principal.userId(),
+        action,
+        AuditActions.ENTITY_CASE,
+        entity.getId(),
+        before,
+        caseSnapshot(entity));
     return CaseResponse.from(entity);
   }
 
@@ -226,12 +271,25 @@ public class CaseService {
       throw new ApiException(ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, "Forbidden");
     }
 
+    Map<String, Object> before = caseSnapshot(entity);
     // NEEDS_INFO keeps assignee unchanged (do not clear)
     entity.setStatus(to);
     entity.setUpdatedAt(Instant.now());
     String comment = request.comment() != null ? request.comment().trim() : null;
     recordTransition(entity, from, to, principal.userId(), comment);
     flushOptimistic(entity);
+    Map<String, Object> after = caseSnapshot(entity);
+    if (comment != null) {
+      after.put("comment", comment);
+    }
+    auditService.record(
+        principal.tenantId(),
+        principal.userId(),
+        AuditActions.CASE_TRANSITIONED,
+        AuditActions.ENTITY_CASE,
+        entity.getId(),
+        before,
+        after);
     return CaseResponse.from(entity);
   }
 
@@ -265,6 +323,17 @@ public class CaseService {
             request.body().trim(),
             Instant.now());
     commentRepository.save(comment);
+    auditService.record(
+        principal.tenantId(),
+        principal.userId(),
+        AuditActions.CASE_COMMENT_ADDED,
+        AuditActions.ENTITY_CASE,
+        entity.getId(),
+        null,
+        Map.of(
+            "commentId", comment.getId().toString(),
+            "body", comment.getBody(),
+            "authorId", comment.getAuthorId().toString()));
     return CaseCommentResponse.from(comment);
   }
 
@@ -329,5 +398,23 @@ public class CaseService {
         .findByIdAndTenantId(caseId, tenantId)
         .orElseThrow(
             () -> new ApiException(ErrorCode.NOT_FOUND, HttpStatus.NOT_FOUND, "Case not found"));
+  }
+
+  /** Snapshot of Case fields suitable for audit before/after JSON (no secrets). */
+  static Map<String, Object> caseSnapshot(CaseEntity entity) {
+    Map<String, Object> snap = new LinkedHashMap<>();
+    snap.put("id", entity.getId().toString());
+    snap.put("caseNumber", entity.getCaseNumber());
+    snap.put("title", entity.getTitle());
+    snap.put("type", entity.getType().name());
+    snap.put("priority", entity.getPriority().name());
+    snap.put("status", entity.getStatus().name());
+    snap.put("patientDisplayName", entity.getPatientDisplayName());
+    snap.put("patientRef", entity.getPatientRef());
+    snap.put("description", entity.getDescription());
+    snap.put("createdBy", entity.getCreatedBy().toString());
+    snap.put("assigneeId", entity.getAssigneeId() != null ? entity.getAssigneeId().toString() : null);
+    snap.put("version", entity.getVersion());
+    return snap;
   }
 }

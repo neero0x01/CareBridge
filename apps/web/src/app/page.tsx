@@ -37,6 +37,12 @@ export default function Home() {
           >
             Admin users
           </a>
+          <a
+            href="/admin/audit"
+            className="rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Audit log
+          </a>
         </div>
         <p className="mt-6 text-sm text-slate-500">
           Synthetic demo data only — not a medical device.

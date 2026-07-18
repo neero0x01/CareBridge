@@ -1,4 +1,4 @@
-package com.carebridge.cases.dto;
+package com.carebridge.common.dto;
 
 import java.util.List;
 import org.springframework.data.domain.Page;
