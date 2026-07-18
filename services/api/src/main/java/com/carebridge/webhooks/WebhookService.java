@@ -15,12 +15,16 @@ import com.carebridge.identity.Tenant;
 import com.carebridge.identity.TenantRepository;
 import com.carebridge.identity.User;
 import com.carebridge.identity.UserRepository;
+import com.carebridge.outbox.DomainEventTypes;
+import com.carebridge.outbox.OutboxService;
 import com.carebridge.webhooks.dto.InboundWebhookResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -41,6 +45,7 @@ public class WebhookService {
   private final TenantCaseCounterRepository counterRepository;
   private final UserRepository userRepository;
   private final ObjectMapper objectMapper;
+  private final OutboxService outboxService;
 
   public WebhookService(
       TenantRepository tenantRepository,
@@ -50,7 +55,8 @@ public class WebhookService {
       CaseCommentRepository caseCommentRepository,
       TenantCaseCounterRepository counterRepository,
       UserRepository userRepository,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      OutboxService outboxService) {
     this.tenantRepository = tenantRepository;
     this.webhookSecretService = webhookSecretService;
     this.webhookEventRepository = webhookEventRepository;
@@ -59,6 +65,7 @@ public class WebhookService {
     this.counterRepository = counterRepository;
     this.userRepository = userRepository;
     this.objectMapper = objectMapper;
+    this.outboxService = outboxService;
   }
 
   /**
@@ -167,6 +174,17 @@ public class WebhookService {
 
     applyLabResultReady(tenant, patientRef, testName, summary, now);
     event.setProcessedAt(now);
+    Map<String, Object> outboxPayload = new LinkedHashMap<>();
+    outboxPayload.put("eventId", event.getId().toString());
+    outboxPayload.put("type", event.getType());
+    outboxPayload.put("tenantId", tenant.getId().toString());
+    outboxPayload.put("patientRef", patientRef);
+    outboxService.enqueue(
+        tenant.getId(),
+        DomainEventTypes.AGGREGATE_WEBHOOK_EVENT,
+        event.getId(),
+        DomainEventTypes.WEBHOOK_PROCESSED,
+        outboxPayload);
     return InboundWebhookResponse.ofNew();
   }
 
@@ -216,6 +234,22 @@ public class WebhookService {
             now,
             now);
     caseRepository.save(entity);
+    Map<String, Object> casePayload = new LinkedHashMap<>();
+    casePayload.put("id", entity.getId().toString());
+    casePayload.put("caseNumber", entity.getCaseNumber());
+    casePayload.put("title", entity.getTitle());
+    casePayload.put("type", entity.getType().name());
+    casePayload.put("priority", entity.getPriority().name());
+    casePayload.put("status", entity.getStatus().name());
+    casePayload.put("patientRef", entity.getPatientRef());
+    casePayload.put("createdBy", entity.getCreatedBy().toString());
+    casePayload.put("source", "webhook");
+    outboxService.enqueue(
+        tenant.getId(),
+        DomainEventTypes.AGGREGATE_CASE,
+        entity.getId(),
+        DomainEventTypes.CASE_CREATED,
+        casePayload);
   }
 
   private UUID requireSystemActorId(UUID tenantId) {

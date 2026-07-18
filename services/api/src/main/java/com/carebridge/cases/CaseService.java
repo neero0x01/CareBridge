@@ -16,6 +16,8 @@ import com.carebridge.common.error.ErrorCode;
 import com.carebridge.identity.Role;
 import com.carebridge.identity.User;
 import com.carebridge.identity.UserRepository;
+import com.carebridge.outbox.DomainEventTypes;
+import com.carebridge.outbox.OutboxService;
 import com.carebridge.security.AuthenticatedUser;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -39,6 +41,7 @@ public class CaseService {
   private final CaseCommentRepository commentRepository;
   private final UserRepository userRepository;
   private final AuditService auditService;
+  private final OutboxService outboxService;
 
   public CaseService(
       CaseRepository caseRepository,
@@ -46,13 +49,15 @@ public class CaseService {
       CaseTransitionRepository transitionRepository,
       CaseCommentRepository commentRepository,
       UserRepository userRepository,
-      AuditService auditService) {
+      AuditService auditService,
+      OutboxService outboxService) {
     this.caseRepository = caseRepository;
     this.counterRepository = counterRepository;
     this.transitionRepository = transitionRepository;
     this.commentRepository = commentRepository;
     this.userRepository = userRepository;
     this.auditService = auditService;
+    this.outboxService = outboxService;
   }
 
   @Transactional
@@ -86,6 +91,7 @@ public class CaseService {
         entity.getId(),
         null,
         caseSnapshot(entity));
+    enqueueCaseCreated(entity, principal.userId());
     return CaseResponse.from(entity);
   }
 
@@ -191,6 +197,8 @@ public class CaseService {
         entity.getId(),
         before,
         caseSnapshot(entity));
+    enqueueCaseAssigned(entity, principal.userId());
+    enqueueCaseTransitioned(entity, from, CaseStatus.IN_REVIEW, principal.userId(), "Claimed");
     return CaseResponse.from(entity);
   }
 
@@ -245,6 +253,11 @@ public class CaseService {
         entity.getId(),
         before,
         caseSnapshot(entity));
+    enqueueCaseAssigned(entity, principal.userId());
+    if (from == CaseStatus.TO_DO) {
+      enqueueCaseTransitioned(
+          entity, from, CaseStatus.IN_REVIEW, principal.userId(), "Assigned to reviewer");
+    }
     return CaseResponse.from(entity);
   }
 
@@ -290,6 +303,7 @@ public class CaseService {
         entity.getId(),
         before,
         after);
+    enqueueCaseTransitioned(entity, from, to, principal.userId(), comment);
     return CaseResponse.from(entity);
   }
 
@@ -398,6 +412,52 @@ public class CaseService {
         .findByIdAndTenantId(caseId, tenantId)
         .orElseThrow(
             () -> new ApiException(ErrorCode.NOT_FOUND, HttpStatus.NOT_FOUND, "Case not found"));
+  }
+
+  private void enqueueCaseCreated(CaseEntity entity, UUID actorId) {
+    Map<String, Object> payload = caseSnapshot(entity);
+    payload.put("actorId", actorId.toString());
+    outboxService.enqueue(
+        entity.getTenantId(),
+        DomainEventTypes.AGGREGATE_CASE,
+        entity.getId(),
+        DomainEventTypes.CASE_CREATED,
+        payload);
+  }
+
+  private void enqueueCaseAssigned(CaseEntity entity, UUID actorId) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("caseId", entity.getId().toString());
+    payload.put("caseNumber", entity.getCaseNumber());
+    payload.put("assigneeId", entity.getAssigneeId() != null ? entity.getAssigneeId().toString() : null);
+    payload.put("actorId", actorId.toString());
+    payload.put("status", entity.getStatus().name());
+    outboxService.enqueue(
+        entity.getTenantId(),
+        DomainEventTypes.AGGREGATE_CASE,
+        entity.getId(),
+        DomainEventTypes.CASE_ASSIGNED,
+        payload);
+  }
+
+  private void enqueueCaseTransitioned(
+      CaseEntity entity, CaseStatus from, CaseStatus to, UUID actorId, String comment) {
+    Map<String, Object> payload = new LinkedHashMap<>();
+    payload.put("caseId", entity.getId().toString());
+    payload.put("caseNumber", entity.getCaseNumber());
+    payload.put("fromStatus", from.name());
+    payload.put("toStatus", to.name());
+    payload.put("actorId", actorId.toString());
+    payload.put("assigneeId", entity.getAssigneeId() != null ? entity.getAssigneeId().toString() : null);
+    if (comment != null) {
+      payload.put("comment", comment);
+    }
+    outboxService.enqueue(
+        entity.getTenantId(),
+        DomainEventTypes.AGGREGATE_CASE,
+        entity.getId(),
+        DomainEventTypes.CASE_TRANSITIONED,
+        payload);
   }
 
   /** Snapshot of Case fields suitable for audit before/after JSON (no secrets). */

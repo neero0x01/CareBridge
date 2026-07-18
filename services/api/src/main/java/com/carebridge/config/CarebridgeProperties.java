@@ -10,6 +10,7 @@ public class CarebridgeProperties {
   private final Auth auth = new Auth();
   private final Cors cors = new Cors();
   private final Webhooks webhooks = new Webhooks();
+  private final Outbox outbox = new Outbox();
 
   public Jwt getJwt() {
     return jwt;
@@ -25,6 +26,10 @@ public class CarebridgeProperties {
 
   public Webhooks getWebhooks() {
     return webhooks;
+  }
+
+  public Outbox getOutbox() {
+    return outbox;
   }
 
   public static class Jwt {
@@ -105,6 +110,37 @@ public class CarebridgeProperties {
 
     public void setEncryptionKeyBase64(String encryptionKeyBase64) {
       this.encryptionKeyBase64 = encryptionKeyBase64;
+    }
+  }
+
+  /** Transactional outbox poller (MUH-15). v1 sink is structured application logs. */
+  public static class Outbox {
+    private boolean schedulingEnabled = true;
+    private int batchSize = 50;
+    private long pollIntervalMs = 2000;
+
+    public boolean isSchedulingEnabled() {
+      return schedulingEnabled;
+    }
+
+    public void setSchedulingEnabled(boolean schedulingEnabled) {
+      this.schedulingEnabled = schedulingEnabled;
+    }
+
+    public int getBatchSize() {
+      return batchSize;
+    }
+
+    public void setBatchSize(int batchSize) {
+      this.batchSize = batchSize;
+    }
+
+    public long getPollIntervalMs() {
+      return pollIntervalMs;
+    }
+
+    public void setPollIntervalMs(long pollIntervalMs) {
+      this.pollIntervalMs = pollIntervalMs;
     }
   }
 }

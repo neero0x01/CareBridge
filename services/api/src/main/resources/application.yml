@@ -47,6 +47,10 @@ carebridge:
   webhooks:
     # AES-256 key, Base64 of 32 bytes. Override via WEBHOOK_ENCRYPTION_KEY in real deploys.
     encryption-key-base64: ${WEBHOOK_ENCRYPTION_KEY:Y2FyZWJyaWRnZS1sb2NhbC13ZWJob29rLWtleSEhISE=}
+  outbox:
+    scheduling-enabled: ${OUTBOX_SCHEDULING_ENABLED:true}
+    batch-size: ${OUTBOX_BATCH_SIZE:50}
+    poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:2000}
 
 logging:
   level:

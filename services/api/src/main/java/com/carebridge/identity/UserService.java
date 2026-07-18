@@ -7,6 +7,8 @@ import com.carebridge.common.error.ErrorCode;
 import com.carebridge.identity.dto.InviteUserRequest;
 import com.carebridge.identity.dto.PatchUserRequest;
 import com.carebridge.identity.dto.UserResponse;
+import com.carebridge.outbox.DomainEventTypes;
+import com.carebridge.outbox.OutboxService;
 import com.carebridge.security.AuthenticatedUser;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -24,12 +26,17 @@ public class UserService {
   private final UserRepository userRepository;
   private final PasswordEncoder passwordEncoder;
   private final AuditService auditService;
+  private final OutboxService outboxService;
 
   public UserService(
-      UserRepository userRepository, PasswordEncoder passwordEncoder, AuditService auditService) {
+      UserRepository userRepository,
+      PasswordEncoder passwordEncoder,
+      AuditService auditService,
+      OutboxService outboxService) {
     this.userRepository = userRepository;
     this.passwordEncoder = passwordEncoder;
     this.auditService = auditService;
+    this.outboxService = outboxService;
   }
 
   @Transactional
@@ -61,6 +68,14 @@ public class UserService {
         invited.getId(),
         null,
         userSnapshot(invited));
+    Map<String, Object> payload = userSnapshot(invited);
+    payload.put("actorId", principal.userId().toString());
+    outboxService.enqueue(
+        principal.tenantId(),
+        DomainEventTypes.AGGREGATE_USER,
+        invited.getId(),
+        DomainEventTypes.USER_INVITED,
+        payload);
     return UserResponse.from(invited);
   }
 
