@@ -148,6 +148,43 @@ class WebhooksIT {
         .isEqualTo("Lab follow-up: HbA1c");
     assertThat((Object) JsonPath.read(list.getBody(), "$.content[0].description"))
         .isEqualTo("Synthetic result for demo");
+    String caseId = JsonPath.read(list.getBody(), "$.content[0].id");
+    // Full parity: Case create via lab path writes audit
+    ResponseEntity<String> audit =
+        restTemplate.exchange(
+            "/api/v1/audit?entityType=Case&entityId=" + caseId,
+            HttpMethod.GET,
+            authEntity(tenant.accessToken()),
+            String.class);
+    assertThat(audit.getStatusCode()).isEqualTo(HttpStatus.OK);
+    List<String> actions = JsonPath.read(audit.getBody(), "$.content[*].action");
+    assertThat(actions).contains("CASE_CREATED");
+  }
+
+  @Test
+  void listUsersHidesSystemActorAndLoginAsSystemFails() {
+    RegisteredTenant tenant = registerTenant();
+
+    ResponseEntity<String> users =
+        restTemplate.exchange(
+            "/api/v1/users", HttpMethod.GET, authEntity(tenant.accessToken()), String.class);
+    assertThat(users.getStatusCode()).isEqualTo(HttpStatus.OK);
+    List<String> emails = JsonPath.read(users.getBody(), "$[*].email");
+    assertThat(emails).doesNotContain("system@carebridge.internal");
+    assertThat(emails).contains(tenant.email());
+
+    ResponseEntity<String> loginAsSystem =
+        restTemplate.postForEntity(
+            "/api/v1/auth/login",
+            Map.of(
+                "tenantSlug",
+                tenant.slug(),
+                "email",
+                "system@carebridge.internal",
+                "password",
+                "password"),
+            String.class);
+    assertThat(loginAsSystem.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
   }
 
   @Test
@@ -200,6 +237,16 @@ class WebhooksIT {
     List<String> bodies = JsonPath.read(comments.getBody(), "$[*].body");
     assertThat(bodies).hasSize(1);
     assertThat(bodies.get(0)).isEqualTo("Lab result ready: Lipid panel — All synthetic");
+
+    ResponseEntity<String> audit =
+        restTemplate.exchange(
+            "/api/v1/audit?entityType=Case&entityId=" + caseId,
+            HttpMethod.GET,
+            authEntity(tenant.accessToken()),
+            String.class);
+    assertThat(audit.getStatusCode()).isEqualTo(HttpStatus.OK);
+    List<String> actions = JsonPath.read(audit.getBody(), "$.content[*].action");
+    assertThat(actions).contains("CASE_COMMENT_ADDED");
   }
 
   @Test

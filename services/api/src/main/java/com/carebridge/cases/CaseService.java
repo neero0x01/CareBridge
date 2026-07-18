@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -328,18 +329,88 @@ public class CaseService {
           ErrorCode.FORBIDDEN, HttpStatus.FORBIDDEN, "AUDITOR cannot comment on Cases");
     }
 
+    return persistComment(entity, principal.userId(), request.body().trim(), Instant.now());
+  }
+
+  /**
+   * Lab webhook write path: if an Open LAB_FOLLOWUP exists for {@code patientRef}, append a system
+   * comment; otherwise open a new LAB_FOLLOWUP. Does not use {@link CaseAuthz} (System Actor path).
+   * Full audit + outbox parity with human create/comment.
+   */
+  @Transactional
+  public CaseResponse openOrCommentOnLabFollowup(
+      UUID tenantId, String patientRef, String testName, String summary) {
+    User systemActor =
+        userRepository
+            .findByTenantIdAndSystemTrue(tenantId)
+            .orElseThrow(
+                () ->
+                    new ApiException(
+                        ErrorCode.INTERNAL_ERROR,
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                        "System Actor not found for Tenant"));
+
+    String ref = patientRef.trim();
+    Instant now = Instant.now();
+    Optional<CaseEntity> open =
+        caseRepository.findFirstByTenantIdAndPatientRefAndTypeAndStatusInOrderByCreatedAtAsc(
+            tenantId, ref, CaseType.LAB_FOLLOWUP, CaseWorkflow.openStatuses());
+
+    if (open.isPresent()) {
+      CaseEntity entity = open.get();
+      String body = formatLabComment(testName, summary);
+      persistComment(entity, systemActor.getId(), body, now);
+      return CaseResponse.from(entity);
+    }
+
+    long seq = counterRepository.allocateNext(tenantId);
+    String caseNumber = "CB-" + seq;
+    String title = "Lab follow-up: " + testName;
+    String description =
+        summary == null || summary.isBlank() ? "Inbound lab.result.ready" : summary.trim();
+    CaseEntity entity =
+        new CaseEntity(
+            UUID.randomUUID(),
+            tenantId,
+            caseNumber,
+            title,
+            CaseType.LAB_FOLLOWUP,
+            CasePriority.MEDIUM,
+            CaseStatus.TO_DO,
+            ref,
+            ref,
+            description,
+            systemActor.getId(),
+            null,
+            now,
+            now);
+    caseRepository.save(entity);
+    auditService.record(
+        tenantId,
+        systemActor.getId(),
+        AuditActions.CASE_CREATED,
+        AuditActions.ENTITY_CASE,
+        entity.getId(),
+        null,
+        caseSnapshot(entity));
+    enqueueCaseCreated(entity, systemActor.getId());
+    return CaseResponse.from(entity);
+  }
+
+  private CaseCommentResponse persistComment(
+      CaseEntity entity, UUID authorId, String body, Instant now) {
     CaseCommentEntity comment =
         new CaseCommentEntity(
             UUID.randomUUID(),
             entity.getId(),
             entity.getTenantId(),
-            principal.userId(),
-            request.body().trim(),
-            Instant.now());
+            authorId,
+            body,
+            now);
     commentRepository.save(comment);
     auditService.record(
-        principal.tenantId(),
-        principal.userId(),
+        entity.getTenantId(),
+        authorId,
         AuditActions.CASE_COMMENT_ADDED,
         AuditActions.ENTITY_CASE,
         entity.getId(),
@@ -349,6 +420,13 @@ public class CaseService {
             "body", comment.getBody(),
             "authorId", comment.getAuthorId().toString()));
     return CaseCommentResponse.from(comment);
+  }
+
+  private static String formatLabComment(String testName, String summary) {
+    if (summary == null || summary.isBlank()) {
+      return "Lab result ready: " + testName;
+    }
+    return "Lab result ready: " + testName + " — " + summary.trim();
   }
 
   @Transactional(readOnly = true)

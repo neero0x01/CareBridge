@@ -99,8 +99,10 @@ public class AuthService {
             Role.ORG_ADMIN,
             true,
             false,
+            false,
             now);
     userRepository.save(admin);
+    userRepository.save(mintSystemActor(tenantId, now));
 
     TokenResponse tokens = issueTokens(admin, UUID.randomUUID());
     return RegisterTenantResponse.of(
@@ -130,7 +132,9 @@ public class AuthService {
                     new ApiException(
                         ErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED, "Invalid credentials"));
 
-    if (!user.isActive() || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+    if (user.isSystem()
+        || !user.isActive()
+        || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
       throw new ApiException(
           ErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED, "Invalid credentials");
     }
@@ -217,7 +221,28 @@ public class AuthService {
     return UserResponse.from(user);
   }
 
+  /**
+   * Non-login System Actor for the Tenant (Creator / comment author for lab webhooks). Role column
+   * is AUDITOR only to satisfy the DB CHECK; authorization ignores Role when {@code isSystem}.
+   */
+  private User mintSystemActor(UUID tenantId, Instant now) {
+    return new User(
+        UUID.randomUUID(),
+        tenantId,
+        "system@carebridge.internal",
+        passwordEncoder.encode(UUID.randomUUID().toString()),
+        "System",
+        Role.AUDITOR,
+        true,
+        false,
+        true,
+        now);
+  }
+
   private TokenResponse issueTokens(User user, UUID familyId) {
+    if (user.isSystem()) {
+      throw new IllegalStateException("Cannot issue tokens for System Actor");
+    }
     String accessToken = jwtService.createAccessToken(user);
     long expiresIn = jwtService.accessTokenExpiresInSeconds();
 

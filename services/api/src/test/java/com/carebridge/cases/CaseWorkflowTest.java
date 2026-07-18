@@ -44,4 +44,17 @@ class CaseWorkflowTest {
     assertThat(CaseWorkflow.isTerminal(CaseStatus.IN_REVIEW)).isFalse();
     assertThat(CaseWorkflow.isTerminal(CaseStatus.NEEDS_INFO)).isFalse();
   }
+
+  @Test
+  void openIsComplementOfTerminal() {
+    for (CaseStatus status : CaseStatus.values()) {
+      assertThat(CaseWorkflow.isOpen(status)).isEqualTo(!CaseWorkflow.isTerminal(status));
+    }
+  }
+
+  @Test
+  void openStatusesListMatchesDomainDefinition() {
+    assertThat(CaseWorkflow.openStatuses())
+        .containsExactlyInAnyOrder(CaseStatus.TO_DO, CaseStatus.IN_REVIEW, CaseStatus.NEEDS_INFO);
+  }
 }

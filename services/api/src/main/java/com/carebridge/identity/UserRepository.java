@@ -13,5 +13,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
   List<User> findByTenantIdOrderByCreatedAtAsc(UUID tenantId);
 
+  List<User> findByTenantIdAndSystemFalseOrderByCreatedAtAsc(UUID tenantId);
+
+  Optional<User> findByTenantIdAndSystemTrue(UUID tenantId);
+
   Optional<User> findByIdAndTenantId(UUID id, UUID tenantId);
 }

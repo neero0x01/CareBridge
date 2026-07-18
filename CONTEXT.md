@@ -9,15 +9,19 @@ An organization (clinic) that owns a fully isolated set of users, cases, and con
 _Avoid_: Org (except in role name ORG_ADMIN), workspace, account
 
 **User**:
-A person who belongs to exactly one Tenant in v1 and holds exactly one Role. Invited Users receive a temporary password and must change it before normal use.
+A principal that belongs to exactly one Tenant in v1. Most Users are people with a Role who can log in; a Tenant also has exactly one System Actor User.
 _Avoid_: Member, account, staff (unless speaking casually)
 
+**System Actor**:
+The non-login User for a Tenant used as Creator or comment author when an inbound lab webhook opens or comments on a Case. Minted with the Tenant; never invited, never listed as staff, never issued tokens.
+_Avoid_: System user (ambiguous with OS), service account, bot, first admin
+
 **Invite**:
-An ORG_ADMIN action that creates a User in their Tenant with a role and temporary password (no email delivery in v1).
+An ORG_ADMIN action that creates a human User in their Tenant with a role and temporary password (no email delivery in v1). Does not create the System Actor.
 _Avoid_: Magic link, invitation email (v2)
 
 **Role**:
-One of ORG_ADMIN, CLINICIAN, REVIEWER, or AUDITOR — the permission set attached to a User.
+One of ORG_ADMIN, CLINICIAN, REVIEWER, or AUDITOR — the permission set attached to a human User. The System Actor does not use Role for authorization.
 _Avoid_: Permission, group
 
 **Case**:
@@ -29,7 +33,7 @@ The User currently responsible for progressing a Case; may be empty when the Cas
 _Avoid_: Owner (owner is ambiguous with creator)
 
 **Creator**:
-The User who opened the Case (`created_by`). Distinct from Assignee.
+The User who opened the Case (`created_by`) — a human or the System Actor. Distinct from Assignee.
 _Avoid_: Owner
 
 **Claim**:

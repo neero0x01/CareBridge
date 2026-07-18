@@ -38,6 +38,9 @@ public class User {
   @Column(name = "must_change_password", nullable = false)
   private boolean mustChangePassword = false;
 
+  @Column(name = "is_system", nullable = false)
+  private boolean system = false;
+
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
 
@@ -52,6 +55,7 @@ public class User {
       Role role,
       boolean active,
       boolean mustChangePassword,
+      boolean system,
       Instant createdAt) {
     this.id = id;
     this.tenantId = tenantId;
@@ -61,6 +65,7 @@ public class User {
     this.role = role;
     this.active = active;
     this.mustChangePassword = mustChangePassword;
+    this.system = system;
     this.createdAt = createdAt;
   }
 
@@ -94,6 +99,10 @@ public class User {
 
   public boolean isMustChangePassword() {
     return mustChangePassword;
+  }
+
+  public boolean isSystem() {
+    return system;
   }
 
   public Instant getCreatedAt() {

@@ -1,20 +1,10 @@
 package com.carebridge.webhooks;
 
-import com.carebridge.cases.CaseCommentEntity;
-import com.carebridge.cases.CaseCommentRepository;
-import com.carebridge.cases.CaseEntity;
-import com.carebridge.cases.CasePriority;
-import com.carebridge.cases.CaseRepository;
-import com.carebridge.cases.CaseStatus;
-import com.carebridge.cases.CaseType;
-import com.carebridge.cases.TenantCaseCounterRepository;
+import com.carebridge.cases.CaseService;
 import com.carebridge.common.error.ApiException;
 import com.carebridge.common.error.ErrorCode;
-import com.carebridge.identity.Role;
 import com.carebridge.identity.Tenant;
 import com.carebridge.identity.TenantRepository;
-import com.carebridge.identity.User;
-import com.carebridge.identity.UserRepository;
 import com.carebridge.outbox.DomainEventTypes;
 import com.carebridge.outbox.OutboxService;
 import com.carebridge.webhooks.dto.InboundWebhookResponse;
@@ -40,10 +30,7 @@ public class WebhookService {
   private final TenantRepository tenantRepository;
   private final WebhookSecretService webhookSecretService;
   private final WebhookEventRepository webhookEventRepository;
-  private final CaseRepository caseRepository;
-  private final CaseCommentRepository caseCommentRepository;
-  private final TenantCaseCounterRepository counterRepository;
-  private final UserRepository userRepository;
+  private final CaseService caseService;
   private final ObjectMapper objectMapper;
   private final OutboxService outboxService;
 
@@ -51,19 +38,13 @@ public class WebhookService {
       TenantRepository tenantRepository,
       WebhookSecretService webhookSecretService,
       WebhookEventRepository webhookEventRepository,
-      CaseRepository caseRepository,
-      CaseCommentRepository caseCommentRepository,
-      TenantCaseCounterRepository counterRepository,
-      UserRepository userRepository,
+      CaseService caseService,
       ObjectMapper objectMapper,
       OutboxService outboxService) {
     this.tenantRepository = tenantRepository;
     this.webhookSecretService = webhookSecretService;
     this.webhookEventRepository = webhookEventRepository;
-    this.caseRepository = caseRepository;
-    this.caseCommentRepository = caseCommentRepository;
-    this.counterRepository = counterRepository;
-    this.userRepository = userRepository;
+    this.caseService = caseService;
     this.objectMapper = objectMapper;
     this.outboxService = outboxService;
   }
@@ -172,7 +153,7 @@ public class WebhookService {
       return InboundWebhookResponse.ofAlreadyProcessed();
     }
 
-    applyLabResultReady(tenant, patientRef, testName, summary, now);
+    caseService.openOrCommentOnLabFollowup(tenant.getId(), patientRef, testName, summary);
     event.setProcessedAt(now);
     Map<String, Object> outboxPayload = new LinkedHashMap<>();
     outboxPayload.put("eventId", event.getId().toString());
@@ -186,90 +167,6 @@ public class WebhookService {
         DomainEventTypes.WEBHOOK_PROCESSED,
         outboxPayload);
     return InboundWebhookResponse.ofNew();
-  }
-
-  private void applyLabResultReady(
-      Tenant tenant, String patientRef, String testName, String summary, Instant now) {
-    Optional<CaseEntity> open =
-        caseRepository
-            .findFirstByTenantIdAndPatientRefAndTypeAndStatusInOrderByCreatedAtAsc(
-                tenant.getId(),
-                patientRef,
-                CaseType.LAB_FOLLOWUP,
-                OpenLabCaseMatcher.openStatuses());
-
-    UUID systemActorId = requireSystemActorId(tenant.getId());
-
-    if (open.isPresent()) {
-      String body = formatLabComment(testName, summary);
-      caseCommentRepository.save(
-          new CaseCommentEntity(
-              UUID.randomUUID(),
-              open.get().getId(),
-              tenant.getId(),
-              systemActorId,
-              body,
-              now));
-      return;
-    }
-
-    long seq = counterRepository.allocateNext(tenant.getId());
-    String caseNumber = "CB-" + seq;
-    String title = "Lab follow-up: " + testName;
-    String description = summary.isBlank() ? "Inbound lab.result.ready" : summary.trim();
-    CaseEntity entity =
-        new CaseEntity(
-            UUID.randomUUID(),
-            tenant.getId(),
-            caseNumber,
-            title,
-            CaseType.LAB_FOLLOWUP,
-            CasePriority.MEDIUM,
-            CaseStatus.TO_DO,
-            patientRef,
-            patientRef,
-            description,
-            systemActorId,
-            null,
-            now,
-            now);
-    caseRepository.save(entity);
-    Map<String, Object> casePayload = new LinkedHashMap<>();
-    casePayload.put("id", entity.getId().toString());
-    casePayload.put("caseNumber", entity.getCaseNumber());
-    casePayload.put("title", entity.getTitle());
-    casePayload.put("type", entity.getType().name());
-    casePayload.put("priority", entity.getPriority().name());
-    casePayload.put("status", entity.getStatus().name());
-    casePayload.put("patientRef", entity.getPatientRef());
-    casePayload.put("createdBy", entity.getCreatedBy().toString());
-    casePayload.put("source", "webhook");
-    outboxService.enqueue(
-        tenant.getId(),
-        DomainEventTypes.AGGREGATE_CASE,
-        entity.getId(),
-        DomainEventTypes.CASE_CREATED,
-        casePayload);
-  }
-
-  private UUID requireSystemActorId(UUID tenantId) {
-    return userRepository.findByTenantIdOrderByCreatedAtAsc(tenantId).stream()
-        .filter(u -> u.getRole() == Role.ORG_ADMIN && u.isActive())
-        .map(User::getId)
-        .findFirst()
-        .orElseThrow(
-            () ->
-                new ApiException(
-                    ErrorCode.INTERNAL_ERROR,
-                    HttpStatus.INTERNAL_SERVER_ERROR,
-                    "No active ORG_ADMIN for system actor"));
-  }
-
-  private static String formatLabComment(String testName, String summary) {
-    if (summary == null || summary.isBlank()) {
-      return "Lab result ready: " + testName;
-    }
-    return "Lab result ready: " + testName + " — " + summary.trim();
   }
 
   private static String textOrNull(JsonNode node, String field) {

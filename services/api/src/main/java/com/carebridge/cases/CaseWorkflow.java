@@ -1,7 +1,13 @@
 package com.carebridge.cases;
 
+import java.util.EnumSet;
+import java.util.Set;
+
 /** Pure domain state machine for Case status edges (no Spring, no persistence). */
 public final class CaseWorkflow {
+
+  private static final Set<CaseStatus> OPEN =
+      EnumSet.of(CaseStatus.TO_DO, CaseStatus.IN_REVIEW, CaseStatus.NEEDS_INFO);
 
   private CaseWorkflow() {}
 
@@ -28,5 +34,15 @@ public final class CaseWorkflow {
 
   public static boolean isTerminal(CaseStatus status) {
     return status == CaseStatus.APPROVED || status == CaseStatus.REJECTED;
+  }
+
+  /** Open Case: not terminal (TO_DO, IN_REVIEW, NEEDS_INFO). */
+  public static boolean isOpen(CaseStatus status) {
+    return status != null && OPEN.contains(status);
+  }
+
+  /** Status set for Open Case queries (immutable copy). */
+  public static Set<CaseStatus> openStatuses() {
+    return EnumSet.copyOf(OPEN);
   }
 }

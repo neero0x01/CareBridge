@@ -58,6 +58,7 @@ public class UserService {
             request.role(),
             true,
             true,
+            false,
             now);
     userRepository.save(invited);
     auditService.record(
@@ -81,7 +82,8 @@ public class UserService {
 
   @Transactional(readOnly = true)
   public List<UserResponse> list(AuthenticatedUser principal) {
-    return userRepository.findByTenantIdOrderByCreatedAtAsc(principal.tenantId()).stream()
+    return userRepository.findByTenantIdAndSystemFalseOrderByCreatedAtAsc(principal.tenantId())
+        .stream()
         .map(UserResponse::from)
         .toList();
   }
@@ -95,6 +97,10 @@ public class UserService {
                 () -> new ApiException(ErrorCode.NOT_FOUND, HttpStatus.NOT_FOUND, "User not found"));
 
     Map<String, Object> before = userSnapshot(user);
+    if (user.isSystem()) {
+      throw new ApiException(ErrorCode.NOT_FOUND, HttpStatus.NOT_FOUND, "User not found");
+    }
+
     if (request.role() != null) {
       user.setRole(request.role());
     }
